@@ -30,7 +30,7 @@ O `timestamp` do envelope é a **hora real**. As datas de negócio dentro do `pa
 | Tópico | Produtor | Consumidores | Chave | Situação |
 |---|---|---|---|---|
 | `pedido_criado` | pedidos | **logística**, fornecimentos | `pedidoId` | Kit. Precisamos de campos a mais (seção 3.1) |
-| `pedido_atualizado` | pedidos | **logística**, fornecimentos | `pedidoId` | Kit. Usamos só o cancelamento |
+| `pedido_atualizado` | pedidos | **logística**, **transportadoras** (novo consumidor), fornecimentos | `pedidoId` | Kit. Usamos só o cancelamento |
 | `empresa_cadastrada` | usuarios | **transportadoras**, outros | `empresaId` | Kit. Precisamos de endereço e tipo (seção 4) |
 | `solicitacao_frete_criada` | **logística** | **transportadoras** | `solicitacaoFreteId` | Kit |
 | `cotacao_recebida` | **transportadoras** | **logística** | `solicitacaoFreteId` | Kit |
@@ -141,7 +141,7 @@ O boilerplate do kit publica só `solicitacaoFreteId`, `pedidoId` e `status`. `p
 
 | `tipo` | Campos extras |
 |---|---|
-| `VIAGEM_ALOCADA` | `motorista` (`nome`, `telefone`, `cnhMascarada`), `veiculo` (`placa`, `tipo`), `coletaPrevista` |
+| `VIAGEM_ALOCADA` | `motorista` (`nome`, `telefone`, `cnhMascarada`), `veiculo` (`placa`, `tipo`), `transportadora` (`nome`, `telefone`), `coletaPrevista`, `rota` (60 pontos `[lat, lon]`) |
 | `VIAGEM_RECUSADA` | `motivo` (`SEM_MOTORISTA`, `SEM_VEICULO`) |
 | `COLETA_REALIZADA` | — |
 | `POSICAO` | — |
@@ -211,7 +211,7 @@ Só os nossos dois serviços usam. O `transportadoras-service` grava o ajuste na
 | | Confirmar o nome do claim da empresa no JWT (`empresaId` no código, `empresa_id` no guia) | Média |
 | **Compra e Demanda** | Se o destino vier da demanda, incluir cidade e UF de entrega em `demanda_criada` para chegar até o pedido | Média |
 | **Infraestrutura** | Criar `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` no `init_topics.sh` e no `CONTRACTS.md` | Alta |
-| | Registrar `transportadoras-service` como consumidor de `frete_selecionado` | Média |
+| | Registrar `transportadoras-service` como consumidor de `frete_selecionado` e de `pedido_atualizado` | Média |
 | | Correções do kit listadas na [análise](04-analise-do-kit.md) | Alta |
 | **Banco de Dados** | Aplicar a proposta de DDL dos schemas `logistica` e `transportadoras` ([arquitetura](02-arquitetura-proposta.md), seção 9) e a correção dos GRANTs (K1) | Alta |
 | **UX/UI** | Nenhuma pendência: o design está entregue e as telas são nossas (D11). Avisar que vamos implementá-las | Baixa |

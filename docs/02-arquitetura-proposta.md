@@ -54,6 +54,7 @@ flowchart LR
 | Receber cotação digitada | `POST` do usuário `transportadora` | Mesma checagem de disponibilidade; publica `cotacao_recebida` |
 | Listar cargas disponíveis | Cópia local das solicitações | Tela "Solicitações de frete" |
 | Escalar motorista e veículo | Consome `frete_selecionado` da sua transportadora | Sorteia entre os livres e compatíveis e publica `VIAGEM_ALOCADA`. Se não houver, publica `VIAGEM_RECUSADA` |
+| Cancelar a viagem | Consome `pedido_atualizado` com `CANCELADO` | Encerra a viagem e libera motorista e veículo |
 | Simular a viagem | Rotina a cada 30 s (D10) | Publica `rastreio_atualizado` com posição, progresso e previsão |
 | Indicadores | Resultado das viagens | Entregas, % no prazo e atraso médio por transportadora e tipo de carga |
 | Relógio do módulo | Consome `relogio_ajustado` | Usa o mesmo relógio da logística |
@@ -212,22 +213,31 @@ A tela segue o estilo do mockup do UX.
 
 Quando o `transportadoras-service` recebe um `frete_selecionado` de uma das suas transportadoras:
 
-1. Filtra os motoristas e veículos **da transportadora**, **ativos**, **livres** (sem viagem em andamento), com **tipo de carga compatível**, **capacidade ≥ peso** e CNH válida.
-2. **Sorteia** um motorista e um veículo entre os que passaram.
-3. Marca os dois como ocupados **na mesma transação**, travando as linhas com `FOR UPDATE SKIP LOCKED`. Assim duas viagens que chegam ao mesmo tempo nunca pegam o mesmo caminhão.
-4. Publica `VIAGEM_ALOCADA` com motorista e veículo. Se ninguém passou no filtro, publica `VIAGEM_RECUSADA` (D20).
+1. Filtra os motoristas e veículos **da transportadora**, **ativos**, **livres** (sem viagem em andamento), com **tipo de carga compatível**, **capacidade ≥ peso**, CNH válida e **categoria da CNH** suficiente para o veículo (C para caminhão, E para carreta).
+2. **Sorteia** a ordem dos candidatos, com o id da entrega como semente: a mesma entrega gera sempre o mesmo sorteio.
+3. Tenta **reservar** cada candidato com uma gravação condicional: `UPDATE ... SET viagem_atual_id = <viagem> WHERE id = <veículo> AND viagem_atual_id IS NULL`. Se outra viagem, na outra cópia do serviço, pegou o mesmo caminhão um instante antes, a gravação altera 0 linhas e o próximo do sorteio é tentado. Assim o mesmo caminhão nunca fica em duas viagens, e uma viagem não bloqueia a frota inteira enquanto escala.
+4. Publica `VIAGEM_ALOCADA` com motorista, veículo, contato da transportadora e a rota. Se não sobrou par livre, publica `VIAGEM_RECUSADA` (D20).
 
-Motorista e veículo voltam a ficar livres na entrega ou no cancelamento.
+Motorista e veículo voltam a ficar livres na entrega ou no cancelamento (o `transportadoras-service` também consome `pedido_atualizado`).
 
 ### 6.3 Simulação da viagem
 
-1. Monta a rota: cerca de 50 pontos interpolados entre origem e destino (D9), com coordenadas da tabela de cidades (D15).
-2. Agenda a coleta e publica `COLETA_REALIZADA`.
-3. A cada **30 s reais** (D10), calcula a posição pelo **relógio do módulo** (seção 7) e publica `POSICAO` com coordenadas, progresso e previsão.
-4. Pode publicar `PARADA` (descanso do motorista) e, quando sorteia um atraso, `PREVISAO_ATUALIZADA`.
-5. No fim da rota, publica `ENTREGA_REALIZADA` com `noPrazo` e `atrasoHoras`.
+Plano, calculado na escala (`transportadoras/simulacao.py`):
 
-Como a posição sai do relógio, e não de um contador de passos, acelerar o relógio acelera a viagem sem mudar o código do simulador.
+| Item | Regra |
+|---|---|
+| Coleta | 2 h depois da escala |
+| Chegada planejada | 14h (Brasília) da data prometida na cotação, mas nunca antes do tempo mínimo de estrada (distância ÷ km rodados por dia) |
+| Atraso | Sorteado uma vez, com a probabilidade de atraso da transportadora: de 4 a 36 h. Só "aparece" aos 60% do caminho |
+| Parada | Uma parada para descanso aos 45% do caminho, com a cidade mais próxima |
+| No prazo | Entregue até 23h59 (Brasília) da data prometida |
+
+A cada **30 s reais** (D10), uma rotina nas duas cópias pega as viagens cuja hora do próximo passo chegou (`FOR UPDATE SKIP LOCKED`) e:
+
+1. calcula o progresso pelo **relógio do módulo** (seção 7), a partir de um "marco" (a coleta ou o momento em que o atraso apareceu), para o caminhão nunca voltar no mapa quando a previsão muda;
+2. publica, em ordem: `COLETA_REALIZADA`, `PARADA`, `PREVISAO_ATUALIZADA`, `POSICAO` ou `ENTREGA_REALIZADA`, conforme o caso. Se o relógio estiver tão rápido que o caminhão "pula" a parada ou o atraso num passo só, eles são publicados mesmo assim, com o horário em que teriam acontecido.
+
+A rota tem 60 pontos em linha reta entre as cidades (D9). Como a posição sai do relógio, e não de um contador de passos, acelerar o relógio acelera a viagem sem mudar o código do simulador.
 
 ### 6.4 Como a tela recebe as atualizações
 
@@ -388,7 +398,9 @@ Os pontos que a disciplina deve cobrar. Cada um precisa de um teste (plano, seç
 | Gravar no banco e publicar no Kafka sem perder nenhum | Toda publicação | Outbox transacional (D13) |
 | Frete escolhido duas vezes | Comprador, botão "automático" e prazo de 12 h ao mesmo tempo, em duas cópias | Gravação condicional (seção 11.1) |
 | Cotação depois da escolha | Logística | A mesma gravação condicional: a cotação é guardada como `RECUSADA_TARDE` |
-| Mesmo caminhão em duas viagens | Escala do motorista e do veículo | `FOR UPDATE SKIP LOCKED` nas linhas de motorista e veículo (seção 6.2) |
+| Mesmo caminhão em duas viagens | Escala do motorista e do veículo | Reserva por gravação condicional (`WHERE viagem_atual_id IS NULL`), seção 6.2 |
+| Caminhão "voltando" no mapa | Rastreio | O progresso parte do último marco; a logística ignora `sequencia` antiga |
+| Uma cópia cai no meio da viagem | Rastreio | A outra cópia assume as partições do Kafka e as viagens vencidas; testado na etapa 3 |
 | Tarefas com hora marcada em duas cópias | Prazos e passos da viagem | `FOR UPDATE SKIP LOCKED` nas linhas vencidas (D14) |
 | Relógio igual em todas as cópias | Relógio do módulo | Estado no banco de cada serviço, propagado por evento com `versao` (seção 7) |
 | Tela ligada a outra cópia | Rastreio | A tela lê do banco (seção 6.4) |

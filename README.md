@@ -2,7 +2,7 @@
 
 Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuído, trabalho da disciplina de Sistemas Distribuídos (2026). O grupo cuida do que acontece depois que o pedido é criado: cotar o frete com as transportadoras, comparar as propostas, escolher a vencedora e acompanhar a entrega num mapa até a chegada.
 
-> **Situação:** etapas 1 e 2 concluídas e validadas no Docker: o pedido entra, as transportadoras cotam, o comprador escolhe (ou o sistema escolhe pelo menor preço), com relógio acelerável, notificações e cancelamento. Próxima: etapa 3 (motoristas, viagem simulada e mapa). Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
+> **Situação:** etapas 1, 2 e 3 concluídas e validadas no Docker: o pedido entra, as transportadoras cotam, o comprador escolhe (ou o sistema escolhe pelo menor preço), o motorista é escalado e o caminhão aparece andando no mapa até a entrega, em <http://localhost:8088>. Próxima: etapa 4 (tela de comparação, ranking, cotação digitada, cadastros e documentos). Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
 
 ## Integrantes
 
@@ -68,7 +68,9 @@ flowchart LR
 
 ## Como rodar
 
-O repositório tem um ambiente de desenvolvimento próprio (`docker-compose.yml`): Postgres, Redpanda, Redpanda Console e as **duas cópias** de cada serviço, como no kit. As portas não conflitam com as do kit. É preciso ter o Docker Desktop aberto.
+O repositório tem um ambiente de desenvolvimento próprio (`docker-compose.yml`): Postgres, Redpanda, Redpanda Console, as **duas cópias** de cada serviço (como no kit) e o portal com as telas. As portas não conflitam com as do kit. É preciso ter o Docker Desktop aberto.
+
+**Telas:** <http://localhost:8088>. Entre com um usuário de demonstração (comprador, fornecedor, transportadora ou administrador). O administrador acelera o relógio do módulo pelos botões no topo.
 
 ```bash
 cp .env.example .env               # opcional: troque as senhas
@@ -84,6 +86,7 @@ docker compose down -v             # derruba e apaga os dados
 
 | Ferramenta | Endereço |
 |---|---|
+| **Portal (telas)** | http://localhost:8088 |
 | Logística (cópias 1 e 2) | http://localhost:8108/docs e http://localhost:8118/docs |
 | Transportadoras (cópias 1 e 2) | http://localhost:8109/docs e http://localhost:8119/docs |
 | Redpanda Console (mensagens) | http://localhost:8091 |
@@ -127,7 +130,8 @@ O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](do
 │       ├── transportadoras/
 │       ├── migracoes/
 │       └── tests/
-├── infra/                        # inicialização do Postgres e dos tópicos
+├── frontend/                     # telas (HTML, CSS, JavaScript e mapa Leaflet)
+├── infra/                        # Postgres, tópicos e portal (Nginx)
 └── docs/
     ├── 01-contexto-e-escopo.md ... 06-pauta-de-decisoes.md
     ├── contratos/                # propostas de contrato com outros grupos

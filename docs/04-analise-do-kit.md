@@ -76,4 +76,10 @@ Na etapa 2:
 | L14 | Cotações aceitas até a escolha do comprador (12 h), não só nos 10 s | `logistica/servico.py` |
 | L15 | Quem escolheu fica em `escolhida_por` | `migracoes/002_*.sql`, `logistica/servico.py` |
 
-Ficam para as próximas etapas: L12 (depende do grupo de Pedidos) e L13 (telas, etapas 3 e 4).
+Na etapa 3:
+
+| Item | Como ficou | Onde |
+|---|---|---|
+| L13 | Telas próprias no layout do mockup do UX (lista de entregas e rastreamento com mapa), em vez do formulário genérico do kit; servidas pelo contêiner `portal`, que também reparte as chamadas entre as cópias | `frontend/`, `infra/portal/` |
+
+Fica pendente: L12 (depende do grupo de Pedidos). O caminho do front no gateway do kit (`/logistica/` ou `/app/logistica`) ainda precisa ser confirmado com a Infraestrutura quando as telas forem para o kit.

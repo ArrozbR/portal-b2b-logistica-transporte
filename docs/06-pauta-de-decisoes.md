@@ -121,6 +121,8 @@ Consequência para a apresentação: com o relógio acelerado (D18) para que os 
 - cadastro de motoristas e veículos (não existe no mockup; segue o mesmo estilo);
 - relógio do módulo (só administrador).
 
+Implementado na etapa 3: lista de entregas, rastreamento com mapa e relógio do módulo, servidos pelo contêiner `portal` (http://localhost:8088). O login dessas telas, no ambiente de desenvolvimento, vem do contêiner `usuarios-falso` (D23), que faz o papel do `usuarios-service`.
+
 ### D12. Fim e falha da entrega
 
 **Decisão:** três tópicos novos, a propor à Infraestrutura:
@@ -179,12 +181,16 @@ Como funciona está na [arquitetura](02-arquitetura-proposta.md), seção 7.
 - O sistema **sorteia** o motorista e o veículo entre os que passam nos filtros: da transportadora vencedora, livres, com tipo de carga compatível e capacidade suficiente para o peso.
 - Telefone e CNH são dados pessoais (LGPD): só aparecem para o comprador e o fornecedor daquela entrega, e a CNH aparece mascarada.
 
+Implementado na etapa 3: API de cadastro (a tela fica para a etapa 4); filtro também pela categoria da CNH (C para caminhão, E para carreta); sorteio reproduzível, com o id da entrega como semente; reserva por gravação condicional, para o mesmo caminhão nunca ficar em duas viagens. A CNH sai do `transportadoras-service` já mascarada (só os 4 últimos dígitos).
+
 ### D20. Transportadora sem motorista ou veículo
 
 **Decisão:** duas proteções.
 
 1. Uma transportadora só cota, simulada ou digitando, se tiver motorista e veículo livres e compatíveis naquele momento.
 2. Se, mesmo assim, ninguém estiver livre quando o frete for escolhido (outra viagem ocupou o veículo entre a cotação e a escolha), a transportadora recusa a viagem. A logística passa para a próxima cotação pela regra do kit e avisa o comprador. Se não sobrar nenhuma cotação, o frete é dado como indisponível (D12).
+
+Testado na etapa 3: três compradores escolheram a mesma transportadora, que tinha dois caminhões, ao mesmo tempo. Dois ficaram com ela (caminhões e motoristas diferentes) e o terceiro passou automaticamente para a próxima cotação.
 
 ### D21. Documentos da entrega
 
@@ -202,7 +208,7 @@ Quem recebe o quê está na [arquitetura](02-arquitetura-proposta.md), seção 8
 
 Para o script não esconder uma divergência de contrato, ele valida o evento contra o mesmo JSON Schema que o serviço usa.
 
-Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferramentas.cancelar_pedido_falso` e o contêiner `pedidos-falso` (etapa 2), que consome os nossos eventos, registra as mudanças de status do pedido e cancela o pedido ao receber `frete_indisponivel`.
+Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferramentas.cancelar_pedido_falso` e o contêiner `pedidos-falso` (etapa 2), que consome os nossos eventos, registra as mudanças de status do pedido e cancela o pedido ao receber `frete_indisponivel`. Na etapa 3, o contêiner `usuarios-falso` faz o papel do grupo de Autenticação no login das telas, só no ambiente de desenvolvimento.
 
 ### D24. Repasse de conhecimento
 
