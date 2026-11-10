@@ -11,7 +11,23 @@ nos tópicos do Kafka. Se o ambiente não estiver no ar, são pulados.
 import httpx
 import pytest
 
-from apoio import COPIAS_LOGISTICA, COPIAS_TRANSPORTADORAS, PORTAL, limpar_pedidos_de_teste
+from apoio import COPIAS_LOGISTICA, COPIAS_TRANSPORTADORAS, PORTAL, consultar, limpar_pedidos_de_teste
+
+
+def cnhs_vencidas() -> list[str]:
+    """Motoristas do seed com a CNH vencida na hora do módulo.
+
+    Cada rodada da suíte acelera o relógio (até fator 100000) e o relógio só anda para a
+    frente (D18). Depois de muitas rodadas no mesmo ambiente, a hora do módulo passa da
+    validade das CNHs do seed, esses motoristas deixam de ser escalados, a transportadora
+    deixa de cotar e os testes que esperam 3 cotações falham sem motivo aparente.
+    """
+    return [f"{l['nome']} ({l['transportadora_id']}, {l['cnh_validade']})" for l in consultar("""
+        SELECT m.nome, m.transportadora_id, m.cnh_validade
+          FROM transportadoras.motorista m, transportadoras.relogio r
+         WHERE m.ativo AND m.transportadora_id IN ('transp-economica', 'transp-graneleira', 'transp-expressa')
+           AND m.cnh_validade < (r.base_virtual + (now() - r.base_real) * r.fator)::date
+    """)]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -24,6 +40,11 @@ def ambiente_no_ar():
         pytest.skip("Ambiente fora do ar. Rode: docker compose up -d --build")
     if prontos != [200, 200, 200, 200]:
         pytest.skip(f"Alguma cópia não está pronta: {prontos}")
+    vencidas = cnhs_vencidas()
+    if vencidas:
+        pytest.exit("O relógio do módulo passou da validade das CNHs do seed (rodadas anteriores o aceleraram): "
+                    + "; ".join(vencidas) + ". Recrie o ambiente: docker compose down -v && docker compose up -d --build",
+                    returncode=1)
 
 
 @pytest.fixture(autouse=True)
