@@ -43,6 +43,7 @@ x-ambiente-transportadoras: &ambiente-transportadoras
   SERVICE_NAME: transportadoras-service
   DB_USER: svc_transportadoras
   DB_PASSWORD: ${SVC_TRANSPORTADORAS_SENHA:-dev-transportadoras}
+  RASTREIO_INTERVALO_SEGUNDOS: ${RASTREIO_INTERVALO_SEGUNDOS:-30}
 
 services:
   postgres:
@@ -166,6 +167,40 @@ services:
       topicos:
         condition: service_completed_successfully
       logistica-1:
+        condition: service_started
+
+  # SOMENTE DESENVOLVIMENTO: faz o papel do usuarios-service no login da tela.
+  usuarios-falso:
+    image: grupo5/logistica-service:dev
+    pull_policy: never
+    command: ["uvicorn", "comum.ferramentas.usuarios_falso:app", "--host", "0.0.0.0", "--port", "8101"]
+    restart: unless-stopped
+    environment:
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-somente-desenvolvimento-local-troque-esta-chave}
+    depends_on:
+      logistica-1:
+        condition: service_started
+
+  # Telas do módulo + gateway: reparte as chamadas entre as duas cópias de cada
+  # serviço, como o Nginx do kit. Abra http://localhost:8088
+  portal:
+    build:
+      context: .
+      dockerfile: infra/portal/Dockerfile
+    image: grupo5/portal-dev:latest
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    depends_on:
+      logistica-1:
+        condition: service_started
+      logistica-2:
+        condition: service_started
+      transportadoras-1:
+        condition: service_started
+      transportadoras-2:
+        condition: service_started
+      usuarios-falso:
         condition: service_started
 
 volumes:
