@@ -1,0 +1,6 @@
+# Scripts que rodam dentro dos contêineres Linux precisam de quebra de linha LF,
+# mesmo quando o repositório é clonado no Windows.
+* text=auto
+*.sh text eol=lf
+*.sql text eol=lf
+Dockerfile text eol=lf
