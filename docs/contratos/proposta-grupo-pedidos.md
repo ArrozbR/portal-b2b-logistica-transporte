@@ -17,7 +17,7 @@ Também precisamos que o pedido mude de status pelos nossos eventos, porque hoje
 |---|---|:---:|---|---|
 | `produtoNome` | texto | sim | `"Soja em grão"` | Produto |
 | `unidade` | texto | sim | `"KG"` | Produto (`KG`, `TON`, `UN`, `CX`, `L`) |
-| `pesoKg` | número | sim | `24000` | Calculado de `quantidade` e `unidade` |
+| `pesoKg` | número | sim | `24000` | Calculado de `quantidade` e `unidade`: `KG` → a própria quantidade; `TON` → quantidade × 1000; `UN`, `CX` e `L` → quantidade × `pesoUnitarioKg` do produto |
 | `tipoTransporte` | texto | sim | `"GRANEL"` | Produto (`GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO`) |
 | `origem.cidade`, `origem.uf` | texto | sim | `"Sorriso"`, `"MT"` | Fornecimento |
 | `destino.cidade`, `destino.uf` | texto | sim | `"Santos"`, `"SP"` | Demanda ou cadastro do comprador |
@@ -47,6 +47,8 @@ Exemplo completo do payload:
 ```
 
 Os campos são **adicionais**: quem já consome o `pedido_criado` (Fornecimentos) não é afetado.
+
+Todos esses dados já existem nos eventos do grupo de Fornecimento e Produtos (contrato de eventos 1.1, de 10/11/2026): `tipoTransporte` e `pesoUnitarioKg` em `produto_cadastrado` e `produto_atualizado`, e `origem` (`cidade` e `uf`) em `fornecimento_criado`. Eles pediram o mesmo cálculo de `pesoKg` a vocês.
 
 O `fornecimentoId` do exemplo não é pedido nosso: é do grupo de Fornecimento e Produtos, que precisa dele para reservar o estoque (issue #1 do repositório deles). Os dois pedidos são compatíveis e podem entrar juntos. Pelo mesmo motivo, eles propõem os status `CANCELADO` e `VENDA_CONCLUIDA` no `pedido_atualizado`; o nosso consumidor age só no `CANCELADO` e ignora os outros.
 

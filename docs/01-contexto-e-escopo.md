@@ -113,5 +113,5 @@ Conforme as decisões da [pauta](06-pauta-de-decisoes.md).
 | Evento de rastreio | Fato da viagem: coleta realizada, em trânsito, posição, parada, previsão atualizada, ocorrência, entrega realizada |
 | Previsão de chegada (ETA) | Data e hora estimadas de chegada, recalculadas durante a viagem |
 | Transportadora homologada | Empresa com perfil `transportadora` e perfil operacional cadastrado no `transportadoras-service` |
-| Tipo de carga | Como o produto precisa ser transportado. Sugestão do kit: `GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO` (pendência P-06 do grupo de Produtos) |
+| Tipo de carga | Como o produto precisa ser transportado. `GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO` (lista do kit, confirmada com o grupo de Produtos em 10/11/2026) |
 | Simulador de viagem | Rotina do `transportadoras-service` que avança a viagem em tempo acelerado e publica os eventos de rastreio |

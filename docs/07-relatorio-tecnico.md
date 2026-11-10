@@ -476,8 +476,9 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 | Mercado, Negociação e Pedidos | Responder à [proposta de contrato](contratos/proposta-grupo-pedidos.md) |
 | Infraestrutura | Tópicos novos, consumidores novos, correções do kit, caminho das telas no gateway |
 | Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
-| Fornecimento e Produtos | Listas de tipos de transporte e de unidades iguais nos dois lados; falta responder P-27 (o tipo chega pelo `pedido_criado`) e pedir a origem do fornecimento em cidade e UF e o peso por unidade |
-| Autenticação | Confirmar a permissão `logistica:admin` (ADR-026); cidade e UF da empresa, que o `empresa_cadastrada` não traz |
+| Fornecimento e Produtos | Atendido em 10/11/2026: listas confirmadas, origem do fornecimento em cidade e UF e `pesoUnitarioKg` no produto. Falta só avisar que já usamos RS256 |
+| Autenticação | Confirmar a permissão `logistica:admin` (ADR-026; `TENANT_ADMIN` já confirmado como administrador só da empresa); cidade e UF da empresa, que o `empresa_cadastrada` (agora em camelCase) não traz |
+| Turma | Padrão único do erro: `codigo` (nós e Produtos) ou `code` (proposta da Autenticação) |
 | Teste e Qualidade | Revisar a ESP-LOG-001 e a ESP-TRP-001 (gate G1) |
 | Professor | P1 (posição simulada), P2 (escolha pelo comprador), P3 (tópicos novos), data da apresentação |
 

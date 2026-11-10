@@ -36,7 +36,7 @@ Em aberto (D17). Como o código é gerado por IA, o papel de cada membro é **re
 - [ ] Preencher o contato e enviar a [proposta de contrato](contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos.
 - [ ] Levar ao professor as perguntas P1, P2, P3 e P5 da pauta.
 - [ ] Propor à Infra os tópicos `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado`.
-- [ ] Responder ao grupo de Produtos as pendências P-06 (tipos de transporte) e P-27 (como recebemos o tipo).
+- [x] Responder ao grupo de Produtos as pendências P-06 (tipos de transporte) e P-27 (como recebemos o tipo). Incorporado por eles em 10/11/2026, com origem em cidade e UF e `pesoUnitarioKg`.
 - [ ] Pedir à Autenticação o tipo e o endereço da empresa em `empresa_cadastrada`.
 - [ ] Avisar os grupos de UX e de Testes das decisões D5 e D11.
 - [ ] Subir o kit localmente e confirmar os itens K1 a K4 e L1 a L5 da [análise](04-analise-do-kit.md).
