@@ -54,7 +54,7 @@ flowchart LR
 | [03. Eventos e integrações](docs/03-eventos-e-integracoes.md) | Payloads, tópicos novos e o que precisamos pedir a cada grupo |
 | [04. Análise do kit](docs/04-analise-do-kit.md) | Problemas encontrados nos boilerplates de logística e transportadoras |
 | [05. Plano de trabalho](docs/05-plano-de-trabalho.md) | Etapas, testes e roteiro da demonstração |
-| [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões D1 a D24 e perguntas para o professor |
+| [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões D1 a D25 e perguntas para o professor |
 | [07. Relatório técnico](docs/07-relatorio-tecnico.md) | Arquitetura, testes e resultados, limitações e as decisões em ADRs |
 | [Proposta ao grupo de Pedidos](docs/contratos/proposta-grupo-pedidos.md) | Documento pronto para enviar: campos do `pedido_criado` e eventos que eles precisam consumir |
 

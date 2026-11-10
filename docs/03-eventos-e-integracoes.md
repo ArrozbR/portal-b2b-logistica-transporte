@@ -205,10 +205,11 @@ Só os nossos dois serviços usam. O `transportadoras-service` grava o ajuste na
 | Grupo | Pedido | Prioridade |
 |---|---|---|
 | **Mercado, Negociação e Pedidos** | Tudo o que está em [`contratos/proposta-grupo-pedidos.md`](contratos/proposta-grupo-pedidos.md): campos no `pedido_criado`, consumo de `frete_selecionado` (inclusive a troca de transportadora), `entrega_concluida` e `frete_indisponivel` | Alta |
-| **Fornecimento e Produtos** | Responder a P-06 e P-27 do documento deles: fechar a lista de tipos de transporte (`GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO`) e confirmar que o tipo chega pelo `pedido_criado` | Alta |
-| | Origem do fornecimento em cidade e UF, para servir de origem da coleta | Alta |
-| **Autenticação** | `empresa_cadastrada` com tipo da empresa (para cadastrar transportadoras) e endereço com cidade e UF (destino do comprador) | Alta |
-| | Confirmar o nome do claim da empresa no JWT (`empresaId` no código, `empresa_id` no guia) | Média |
+| **Fornecimento e Produtos** | Responder a P-06 e P-27 do documento deles. A lista de tipos de transporte (`GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO`) e a de unidades são iguais nos dois lados (10/11/2026); falta dizer que o tipo chega pelo `pedido_criado` (plano B: consumir `produto_cadastrado` e `produto_atualizado`) | Alta |
+| | Origem do fornecimento em cidade e UF, para servir de origem da coleta (P-05 deles) | Alta |
+| | Peso por unidade no produto (por exemplo `pesoUnitarioKg`), porque com `UN`, `CX` e `L` não dá para calcular o `pesoKg` | Média |
+| **Autenticação** | `empresa_cadastrada`: o tipo da empresa já vem em `scopes` (`CARRIER`) e a localização em `geo_lat`/`geo_lng`, mas sem cidade e UF (issue #2 de Fornecimento e Produtos) | Média |
+| | Token: definido como RS256 com `tenant_id` e `active_scope`, diferente do kit (D25). Falta saber como identificar o administrador da plataforma | Alta |
 | **Compra e Demanda** | Se o destino vier da demanda, incluir cidade e UF de entrega em `demanda_criada` para chegar até o pedido | Média |
 | **Infraestrutura** | Criar `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` no `init_topics.sh` e no `CONTRACTS.md` | Alta |
 | | Registrar `transportadoras-service` como consumidor de `frete_selecionado` e de `pedido_atualizado` | Média |

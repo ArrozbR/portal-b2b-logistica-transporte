@@ -1,6 +1,6 @@
 # 02. Arquitetura
 
-Arquitetura dos dois serviços conforme as decisões da [pauta](06-pauta-de-decisoes.md) (D1 a D24). O que ainda depende de aprovação externa está marcado como **proposta**: os tópicos novos (Infra) e os campos novos do `pedido_criado` (grupo de Pedidos).
+Arquitetura dos dois serviços conforme as decisões da [pauta](06-pauta-de-decisoes.md) (D1 a D25). O que ainda depende de aprovação externa está marcado como **proposta**: os tópicos novos (Infra) e os campos novos do `pedido_criado` (grupo de Pedidos).
 
 ## 1. Visão geral
 

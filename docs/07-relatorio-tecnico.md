@@ -12,7 +12,7 @@ Este relatório registra **o que foi construído, como foi verificado e por que 
 |---|---|
 | [02. Arquitetura](02-arquitetura-proposta.md) | Diagramas, estados, modelo de dados e API completos |
 | [03. Eventos e integrações](03-eventos-e-integracoes.md) | Payload de cada evento e o que pedimos a cada grupo |
-| [06. Pauta de decisões](06-pauta-de-decisoes.md) | As decisões D1 a D24 como foram discutidas |
+| [06. Pauta de decisões](06-pauta-de-decisoes.md) | As decisões D1 a D25 como foram discutidas |
 | [`explicacoes/`](explicacoes/) | Cada etapa explicada sem jargão, com as perguntas prováveis do professor |
 
 As decisões aparecem aqui como ADRs (seção 12): contexto, decisão, alternativas consideradas, consequências e situação.
@@ -139,7 +139,7 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 
 | Tema | Como foi tratado |
 |---|---|
-| Autenticação | JWT do `usuarios-service` (HS256, claims `sub`, `empresaId`/`empresa_id`, `perfil`, `exp`), validado em cada serviço |
+| Autenticação | JWT do `usuarios-service` (HS256, claims `sub`, `empresaId`/`empresa_id`, `perfil`, `exp`), validado em cada serviço, como no kit. O grupo de Autenticação definiu outro formato (RS256 e JWKS, `tenant_id`, `active_scope`); a troca é a proposta D25 |
 | Autorização | Perfis por rota (`exigir_perfis`); visibilidade por empresa (comprador vê os seus pedidos; transportadora só a própria frota); recurso de outra empresa responde 404, não 403, para não revelar que existe |
 | Erros | Token ausente/expirado → 401; perfil errado ou ausente → 403 (o kit dava 500, K8) |
 | LGPD | CNH completa só no serviço de transportadoras; a logística recebe só os 4 últimos dígitos; telefone e CNH só para comprador e fornecedor da entrega (ADR-025) |
@@ -430,6 +430,8 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Carga de escrita não medida | O critério de escrita do kit (p95 ≤ 1000 ms) não foi verificado | Cenário k6 de escolha de frete |
 | Notificações por empresa, não por usuário | Todos da empresa veem as mesmas | Destinatário por usuário |
 | Login de demonstração com token de 8 h | Só desenvolvimento | Usar o `usuarios-service` |
+| Token só no formato do kit (HS256, `empresaId`, `perfil`) | Um token real da Autenticação (RS256, `tenant_id`, `active_scope`) seria recusado | Proposta D25, quando a Infra atualizar o kit |
+| Formato da DLT diferente do kit | O kit grava `originalEvent`, `error`, `stackTrace` e `failedAtAttempt`; nós gravamos `eventoOriginal`, `erro` e `tentativas`. Quem ler as duas DLTs encontra campos diferentes | Usar os nomes do kit em `comum/consumidor.py` |
 | Especificações ERS-LLM (ESP-LOG-001, ESP-TRP-001) não escritas | O QA ainda não tem a especificação no modelo dele | Escrever a partir deste relatório e das explicações |
 
 ## 14. Divergências em relação ao kit e ao planejado
@@ -446,6 +448,7 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Telas | Plano inicial: UX ou nós | Nós, sobre o mockup do UX | D11 |
 | Cache do relógio | Primeira versão: 2 s | Sem cache | ADR-009 |
 | Reserva de caminhão | Primeira versão: `FOR UPDATE` em lista | Gravação condicional | ADR-007 |
+| Conteúdo da DLT | Kit: `originalEvent`, `error`, `stackTrace`, `failedAtAttempt` | `eventoOriginal`, `erro`, `tentativas` | Não percebido na etapa 1; a corrigir (seção 13) |
 
 ## 15. Pendências com outros grupos
 
@@ -454,8 +457,8 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Mercado, Negociação e Pedidos | Responder à [proposta de contrato](contratos/proposta-grupo-pedidos.md) |
 | Infraestrutura | Tópicos novos, consumidores novos, correções do kit, caminho das telas no gateway |
 | Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
-| Fornecimento e Produtos | Fechar a lista de tipos de transporte (P-06, P-27 deles) |
-| Autenticação | Tipo e endereço da empresa em `empresa_cadastrada`; nome do claim da empresa |
+| Fornecimento e Produtos | Listas de tipos de transporte e de unidades iguais nos dois lados; falta responder P-27 (o tipo chega pelo `pedido_criado`) e pedir a origem do fornecimento em cidade e UF e o peso por unidade |
+| Autenticação | Token RS256 com `tenant_id` e `active_scope` (D25) e como identificar o administrador da plataforma; cidade e UF da empresa, que o `empresa_cadastrada` não traz |
 | Teste e Qualidade | Receber as especificações ERS-LLM |
 | Professor | P1 (posição simulada), P2 (escolha pelo comprador), P3 (tópicos novos), data da apresentação |
 
@@ -472,3 +475,4 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Versão | Data | Mudança |
 |---|---|---|
 | 1.0 | 10/11/2026 | Primeira versão, ao fim da etapa 5 (testes de integração e de carga) |
+| 1.1 | 10/11/2026 | Atualização do grupo de Fornecimento e Produtos: token da Autenticação (D25), formato da DLT do kit e pendências da seção 15 |
