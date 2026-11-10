@@ -389,7 +389,7 @@ Todas as rotas exigem JWT: o token RS256 do grupo de Autenticação, validado pe
 | `GET /api/v1/logistica/notificacoes` | todos (as suas) | Notificações, com filtro `lida` |
 | `PATCH /api/v1/logistica/notificacoes/{id}` | todos (as suas) | Marca como lida |
 | `GET /api/v1/logistica/relogio` | todos | Hora do módulo e fator atual |
-| `POST /api/v1/logistica/admin/relogio` | admin | Altera o fator ou avança o relógio |
+| `POST /api/v1/logistica/admin/relogio` | admin | Altera o fator (de 0,01 a 100.000, até 2 casas decimais) ou avança o relógio |
 
 ### 10.2 `transportadoras-service`
 
@@ -400,7 +400,7 @@ Todas as rotas exigem JWT: o token RS256 do grupo de Autenticação, validado pe
 | `PUT /api/v1/transportadoras/{id}/perfil-operacional` | transportadora (a própria), admin | Tipos de carga, UFs e tabela de preços |
 | `GET /api/v1/transportadoras/minha` | transportadora | A transportadora da empresa do usuário |
 | `GET /api/v1/transportadoras/ranking` | todos | Ranking: entregas, % no prazo, atraso médio, preço médio por t·km e vezes escolhida, com filtro por tipo de carga |
-| `GET /api/v1/transportadoras/solicitacoes` | transportadora | Cargas compatíveis abertas para cotação, mais as que ela cotou (com a situação: aceitando, enviada, venceu, outra venceu, encerrada) |
+| `GET /api/v1/transportadoras/solicitacoes` | transportadora | Cargas compatíveis abertas para cotação, mais as que ela cotou (com a situação: aceitando, enviada, venceu, outra venceu, encerrada ou cancelada; pedido cancelado aparece como cancelado mesmo para quem venceu) |
 | `POST /api/v1/transportadoras/solicitacoes/{id}/cotacoes` | transportadora | Cotação digitada. 409 se o frete já foi escolhido; 422 se não houver motorista ou veículo livre e compatível |
 | `GET`, `POST`, `PUT`, `DELETE /api/v1/transportadoras/{id}/motoristas` | transportadora (a própria), admin | Cadastro de motoristas |
 | `GET`, `POST`, `PUT`, `DELETE /api/v1/transportadoras/{id}/veiculos` | transportadora (a própria), admin | Cadastro de veículos |

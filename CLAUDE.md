@@ -13,7 +13,7 @@ Grupo 5 (Logística e Transporte) do **Portal B2B Distribuído**, trabalho da di
 
 Além do que o kit define (cotação e seleção de frete), o professor pediu **rastreio visual da entrega** e **comparação entre transportadoras**.
 
-**Situação:** etapas 1 a 5 concluídas (fluxo do frete, escolha pelo comprador, relógio, notificações, cancelamento, motoristas e veículos, viagem simulada, comparação, cotação digitada, ranking, documentos, ocorrências, todas as telas do mockup, testes de integração dos 3 cenários distribuídos, teste de carga e relatório técnico). Faltam slides e ensaio da apresentação, e as pendências com outros grupos (relatório, seção 15). As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D25, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
+**Situação:** etapas 1 a 5 concluídas (fluxo do frete, escolha pelo comprador, relógio, notificações, cancelamento, motoristas e veículos, viagem simulada, comparação, cotação digitada, ranking, documentos, ocorrências, todas as telas do mockup, testes de integração dos 3 cenários distribuídos, teste de carga e relatório técnico) e especificações ERS-LLM dos dois serviços escritas (aguardam o gate G1 do QA). Faltam slides e ensaio da apresentação, e as pendências com outros grupos (relatório, seção 15). As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D25, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
 
 O código é gerado por IA, com conhecimento do professor. Cada parte entregue precisa vir com um arquivo em `docs/explicacoes/` (D24): o que a parte faz, em linguagem simples; por que foi feita assim; e as perguntas que o professor pode fazer, com as respostas. O grupo não tem experiência com as ferramentas, então explique sem jargão.
 
@@ -38,6 +38,7 @@ Regras de negócio que fogem do kit: o comprador escolhe o frete em até 12 h (a
 | `docs/06-pauta-de-decisoes.md` | Decisões D1 a D25 e perguntas ao professor |
 | `docs/07-relatorio-tecnico.md` | Relatório técnico: arquitetura, testes e resultados, limitações, ADR-001 a ADR-025 |
 | `docs/contratos/` | Propostas de contrato com outros grupos e, quando aprovados, JSON Schemas |
+| `docs/especificacoes/` | ESP-LOG-001 e ESP-TRP-001: especificação de cada serviço no modelo ERS-LLM do grupo de QA (rotas, erros na ordem de verificação, eventos, regras e critérios de aceitação) |
 | `docs/explicacoes/` | Explicação de cada parte implementada, para o grupo estudar (uma por etapa) |
 
 Convenções:
@@ -47,7 +48,7 @@ Convenções:
 - Mantenha os identificadores estáveis (`D#`, `P#`, `K#`, `L#`). Não renumere; acrescente no fim.
 - Quando uma decisão for aceita ou mudar, atualize o ADR correspondente no relatório técnico (`docs/07-relatorio-tecnico.md`, seção 12). ADRs novos entram no fim (ADR-026 em diante).
 - Contratos de eventos aprovados ganham JSON Schema e exemplo em `docs/contratos/`.
-- Especificações dos serviços seguem o modelo ERS-LLM do grupo de QA (ESP-LOG-001 e ESP-TRP-001).
+- Especificações dos serviços seguem o modelo ERS-LLM do grupo de QA (ESP-LOG-001 e ESP-TRP-001, em `docs/especificacoes/`). Elas descrevem o comportamento real do código: ao mudar uma rota, um campo, um código de erro, a ordem das verificações, um evento ou uma regra, atualize a ESP do serviço (e registre a versão no §15 dela). Mantenha os IDs `RF`, `RN`, `CA`, `API` e `Q` estáveis.
 
 ## Fontes e precedência
 
@@ -108,6 +109,7 @@ Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com
 ```bash
 docker compose up -d --build          # ambiente completo (portal 8088, Postgres 15432, Redpanda 29092, Console 8091, serviços 8108/8118/8109/8119)
 docker compose down -v                # derruba e apaga os dados (necessário após mudar migrações)
+docker compose restart portal         # depois de recriar só alguns serviços (o Nginx guarda o IP antigo e responde 502)
 docker compose exec logistica-1 python -m comum.ferramentas.publicar_pedido_falso [--repetir 5]
 docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil admin
 docker compose exec logistica-1 python -m comum.ferramentas.cancelar_pedido_falso --pedido-id <id>

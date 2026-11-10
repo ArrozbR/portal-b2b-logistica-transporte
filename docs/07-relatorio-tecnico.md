@@ -192,8 +192,8 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 
 | Tipo | Onde | Quantidade | Resultado |
 |---|---|---|---|
-| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs, token, retentativas e DLT) | `comum/tests`, `services/*/tests` | 97 | Todos passam |
-| Integração (contra Redpanda e PostgreSQL de verdade, conferindo banco e tópicos) | `testes_integracao/` | 5 | Todos passam em duas rodadas seguidas (≈ 2 min 43 s cada), com o token RS256 |
+| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs, token, retentativas e DLT) | `comum/tests`, `services/*/tests` | 104 | Todos passam |
+| Integração (contra Redpanda e PostgreSQL de verdade, conferindo banco e tópicos) | `testes_integracao/` | 6 | Todos passam, com o token RS256 (≈ 2 min 45 s) |
 | Carga (k6) | `testes_carga/leitura.js` | 1 cenário | Passou (seção 11.3) |
 
 ```bash
@@ -231,6 +231,10 @@ Passou, **com pouca folga**. O limite vem do pool de 5 conexões por cópia (10 
 ### 11.4 Validação por etapa
 
 Além dos testes automatizados, cada etapa foi validada no ambiente com um roteiro de verificações: 31 na etapa 2, 49 na etapa 3 e 65 na etapa 4, todas passando, e as telas conferidas no navegador. Os resultados estão nas [explicações](explicacoes/).
+
+### 11.5 Especificações para o grupo de Teste e Qualidade
+
+As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 requisitos funcionais, 72 critérios de aceitação) e [ESP-TRP-001](especificacoes/ESP-TRP-001_Transportadoras.md) (13 requisitos funcionais, 42 critérios) seguem o modelo ERS-LLM v1.2 do QA. Elas descrevem o código como ele é: os exemplos de resposta e de erro foram capturados do ambiente, e os valores de cotação, distância, datas e sorteio foram calculados pelas mesmas funções do código. Os critérios mais específicos (escolha e replay, cancelamento, DLT com 3 retentativas, Redpanda fora do ar, sorteio do motorista, parada, atraso e entrega da viagem) foram conferidos no ambiente. Escrever as especificações revelou quatro defeitos, corrigidos e cobertos por teste (ver a [explicação 07](explicacoes/07-especificacoes-ers-llm.md)).
 
 ## 12. Registro de decisões (ADRs)
 
@@ -444,7 +448,9 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Login de demonstração com token de 8 h | Só desenvolvimento | Usar o `usuarios-service` |
 | Permissão `logistica:admin` é proposta nossa | Sem ela, ninguém da Autenticação real consegue ser admin do módulo (relógio, todas as entregas) | Confirmar com a Autenticação (ADR-026) |
 | Tela de login só de demonstração | O portal entra pelo `usuarios-falso`, não pelo login e pela troca de contexto da Autenticação | Usar o login da Autenticação no gateway |
-| Especificações ERS-LLM (ESP-LOG-001, ESP-TRP-001) não escritas | O QA ainda não tem a especificação no modelo dele | Escrever a partir deste relatório e das explicações |
+| Especificações ERS-LLM ainda sem a revisão do QA (gate G1) | Podem mudar depois da revisão; notificações, ocorrências e documentos ficaram para a versão 1.1 | Revisão do QA; ESP 1.1 |
+| O relógio do módulo só acelera e adianta | Um teste não consegue pôr o relógio num instante exato; os critérios com data conferem relações a partir do `aberta_em` | Rota de teste para fixar o relógio, só no ambiente de desenvolvimento |
+| `SEM_TRANSPORTADORA` com dois status | 404 em `/minha`, 403 nas rotas de cargas e cotação | Unificar em 403 junto com a tela |
 
 ## 14. Divergências em relação ao kit e ao planejado
 
@@ -472,7 +478,7 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
 | Fornecimento e Produtos | Listas de tipos de transporte e de unidades iguais nos dois lados; falta responder P-27 (o tipo chega pelo `pedido_criado`) e pedir a origem do fornecimento em cidade e UF e o peso por unidade |
 | Autenticação | Confirmar a permissão `logistica:admin` (ADR-026); cidade e UF da empresa, que o `empresa_cadastrada` não traz |
-| Teste e Qualidade | Receber as especificações ERS-LLM |
+| Teste e Qualidade | Revisar a ESP-LOG-001 e a ESP-TRP-001 (gate G1) |
 | Professor | P1 (posição simulada), P2 (escolha pelo comprador), P3 (tópicos novos), data da apresentação |
 
 ## 16. Referências
@@ -489,3 +495,4 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 |---|---|---|
 | 1.0 | 10/11/2026 | Primeira versão, ao fim da etapa 5 (testes de integração e de carga) |
 | 1.1 | 10/11/2026 | Integração com as definições dos outros grupos: token RS256 da Autenticação (ADR-026), DLT no formato do kit, `fornecimentoId` aceito no `pedido_criado`, pendências da seção 15 |
+| 1.2 | 10/11/2026 | Especificações ESP-LOG-001 e ESP-TRP-001 (seção 11.5) e os quatro defeitos achados ao escrevê-las; 104 testes unitários e 6 de integração |

@@ -2,7 +2,7 @@
 
 Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuído, trabalho da disciplina de Sistemas Distribuídos (2026). O grupo cuida do que acontece depois que o pedido é criado: cotar o frete com as transportadoras, comparar as propostas, escolher a vencedora e acompanhar a entrega num mapa até a chegada.
 
-> **Situação:** etapas 1 a 5 concluídas e validadas no Docker. O pedido entra, as transportadoras cotam (sozinhas ou digitando), o comprador compara e escolhe pela tela, o motorista é escalado e o caminhão anda no mapa até a entrega, com ranking, documentos e ocorrências, em <http://localhost:8088>. Os 3 cenários distribuídos (mensagem duplicada, escolhas simultâneas e cópia caindo) têm teste automático, o teste de carga passa no critério do kit e o [relatório técnico](docs/07-relatorio-tecnico.md) reúne as decisões em ADRs. Faltam os slides e o ensaio da apresentação. Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
+> **Situação:** etapas 1 a 5 concluídas e validadas no Docker. O pedido entra, as transportadoras cotam (sozinhas ou digitando), o comprador compara e escolhe pela tela, o motorista é escalado e o caminhão anda no mapa até a entrega, com ranking, documentos e ocorrências, em <http://localhost:8088>. Os 3 cenários distribuídos (mensagem duplicada, escolhas simultâneas e cópia caindo) têm teste automático, o teste de carga passa no critério do kit e o [relatório técnico](docs/07-relatorio-tecnico.md) reúne as decisões em ADRs. As especificações [ESP-LOG-001](docs/especificacoes/ESP-LOG-001_Logistica.md) e [ESP-TRP-001](docs/especificacoes/ESP-TRP-001_Transportadoras.md), no modelo do grupo de Teste e Qualidade, estão escritas e aguardam a revisão deles. Faltam os slides e o ensaio da apresentação. Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
 
 ## Integrantes
 
@@ -57,6 +57,7 @@ flowchart LR
 | [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões D1 a D25 e perguntas para o professor |
 | [07. Relatório técnico](docs/07-relatorio-tecnico.md) | Arquitetura, testes e resultados, limitações e as decisões em ADRs |
 | [Proposta ao grupo de Pedidos](docs/contratos/proposta-grupo-pedidos.md) | Documento pronto para enviar: campos do `pedido_criado` e eventos que eles precisam consumir |
+| [ESP-LOG-001](docs/especificacoes/ESP-LOG-001_Logistica.md) e [ESP-TRP-001](docs/especificacoes/ESP-TRP-001_Transportadoras.md) | Especificações dos dois serviços no modelo ERS-LLM do grupo de Teste e Qualidade, com os critérios de aceitação que eles usam para testar |
 
 ## Repositórios de referência
 
@@ -108,6 +109,8 @@ O contêiner `pedidos-falso` faz o papel do grupo de Pedidos (`docker compose lo
 
 Quando uma migração nova é adicionada, o banco de desenvolvimento precisa ser recriado: `docker compose down -v && docker compose up -d --build`.
 
+Se recriar só alguns serviços (por exemplo, `docker compose up -d --build logistica-1 logistica-2`), reinicie também o portal: `docker compose restart portal`. O Nginx guarda o endereço que cada nome tinha quando ele subiu; os contêineres recriados ganham endereço novo, e o portal passa a responder 502.
+
 Testes unitários, sem Docker:
 
 ```bash
@@ -119,7 +122,7 @@ python -m venv .venv
 Testes de integração e de carga, com o ambiente no ar (eles aceleram o relógio e derrubam contêineres; não rode durante uma demonstração):
 
 ```bash
-.venv/Scripts/python -m pytest testes_integracao -v      # os 4 cenários distribuídos e o fluxo completo (~3 min)
+.venv/Scripts/python -m pytest testes_integracao -v      # os 4 cenários distribuídos, o fluxo completo e a frota (~3 min)
 docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js
 ```
 
@@ -153,5 +156,6 @@ O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](do
 └── docs/
     ├── 01-contexto-e-escopo.md ... 07-relatorio-tecnico.md
     ├── contratos/                # propostas de contrato com outros grupos
+    ├── especificacoes/           # ESP-LOG-001 e ESP-TRP-001 (modelo ERS-LLM do QA)
     └── explicacoes/              # explicação de cada parte implementada
 ```

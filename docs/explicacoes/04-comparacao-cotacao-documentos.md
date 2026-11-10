@@ -72,7 +72,7 @@ Para a logística não há diferença: as duas chegam pelo mesmo tópico do Kafk
 
 A tela confere as três primeiras validações de formulário antes de enviar (critério UX-FRT-06 do grupo de UX), mas quem decide é o serviço: a tela pode ser burlada, a API não.
 
-**Como a transportadora sabe que perdeu ou ganhou?** O serviço de transportadoras consome `frete_selecionado`. Quando o evento chega, ele marca a solicitação como encerrada e anota quem venceu. Por isso a tela mostra "Você venceu" ou "Outra transportadora venceu" sem perguntar nada à logística.
+**Como a transportadora sabe que perdeu ou ganhou?** O serviço de transportadoras consome `frete_selecionado`. Quando o evento chega, ele marca a solicitação como encerrada e anota quem venceu. Por isso a tela mostra "Você venceu" ou "Outra transportadora venceu" sem perguntar nada à logística. Se o pedido for cancelado (`pedido_atualizado`), a tela mostra "Pedido cancelado", inclusive para quem venceu (corrigido na [explicação 07](07-especificacoes-ers-llm.md)).
 
 ### 3.4 Escolher pela tela, com segurança
 

@@ -216,4 +216,4 @@ Só os nossos dois serviços usam. O `transportadoras-service` grava o ajuste na
 | | Correções do kit listadas na [análise](04-analise-do-kit.md) | Alta |
 | **Banco de Dados** | Aplicar a proposta de DDL dos schemas `logistica` e `transportadoras` ([arquitetura](02-arquitetura-proposta.md), seção 9) e a correção dos GRANTs (K1) | Alta |
 | **UX/UI** | Nenhuma pendência: o design está entregue e as telas são nossas (D11). Avisar que vamos implementá-las | Baixa |
-| **Teste e Qualidade** | Entregar as especificações ESP-LOG-001 e ESP-TRP-001 no modelo ERS-LLM. Avisar que o comprador escolhe o frete e que a regra do kit vale no modo automático (D5) | Alta |
+| **Teste e Qualidade** | Enviar as especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) e [ESP-TRP-001](especificacoes/ESP-TRP-001_Transportadoras.md) (versão 1.0, escritas no modelo ERS-LLM) para o gate G1. Avisar que o comprador escolhe o frete e que a regra do kit vale no modo automático (D5) | Alta |
