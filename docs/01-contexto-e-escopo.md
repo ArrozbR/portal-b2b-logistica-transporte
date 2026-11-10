@@ -54,49 +54,61 @@ O grupo de UX/UI já desenhou as duas telas que dependem de nós ([portal-b2b-UI
 - **Solicitações de frete** (`/fretes/solicitacoes`, perfil transportadora): lista de cargas com origem, destino, carga, peso, data de coleta e prazo, e formulário para enviar cotação com valor, prazo estimado, validade e observações.
 - **Rastreamento da entrega** (`/fretes/entregas/{id}`, perfil comprador): status, progresso em %, previsão de chegada, transportadora, veículo, mapa com rota percorrida e restante, linha do tempo (coleta, em trânsito, parada, previsão atualizada, entrega), dados da carga, motorista e documentos.
 
-Nos mockups, mapa, motorista e documentos são marcados como dados demonstrativos. Isso combina com a proposta de simular a viagem em vez de usar GPS real.
+Nos mockups, mapa, motorista e documentos são marcados como dados demonstrativos. O grupo decidiu ir além: motorista, veículo, produto e valor da carga são dados reais do sistema (D19), a posição do caminhão é simulada (D8) e os documentos são modelos demonstrativos (D21).
 
-## 4. Escopo proposto
+## 4. Escopo
+
+Conforme as decisões da [pauta](06-pauta-de-decisoes.md).
 
 ### 4.1 Dentro do escopo
 
-- Abrir a solicitação de frete a partir do `pedido_criado`, com origem, destino, tipo de carga e peso.
-- Cadastro das transportadoras homologadas, com tipos de carga atendidos, estados (UFs) atendidos, capacidade e tabela de preços.
-- Cotação automática (simulada) pelas transportadoras compatíveis e cotação manual pelo usuário com perfil `transportadora`.
-- Janela de cotação, seleção automática pela regra do kit e publicação de `frete_selecionado`.
-- Comparação das cotações de uma solicitação (lado a lado) e ranking de desempenho das transportadoras.
-- Simulação da viagem com posição, eventos de linha do tempo e previsão de chegada.
-- API de rastreio e uma tela com mapa (Leaflet + OpenStreetMap).
-- Conclusão da entrega com evento para o `pedidos-service` mover o pedido para `ENTREGUE`.
-- Cancelamento: pedido cancelado cancela a solicitação ou a entrega.
+- Abrir a solicitação de frete a partir do `pedido_criado`, com origem, destino, tipo de carga, peso, produto e valor da carga.
+- Cadastro das transportadoras homologadas, com tipos de carga, UFs atendidas e tabela de preços.
+- Cadastro de motoristas e veículos, e escala sorteada entre os livres e compatíveis (D19, D20).
+- Cotações simuladas e cotações digitadas pela transportadora (D3).
+- Escolha do frete pelo comprador em até 12 h, botão "automático" e regra do kit como padrão (D4, D5).
+- Comparação das cotações lado a lado e ranking de desempenho das transportadoras (D6).
+- Simulação da viagem com posição a cada 30 s, linha do tempo e previsão de chegada (D8, D10).
+- Relógio do módulo, acelerável pelo administrador (D18).
+- Telas sobre o mockup do UX: rastreamento com mapa, solicitações de frete, comparação, ranking, cadastros e relógio (D11).
+- Notificações no portal para comprador e fornecedor (D22).
+- Documentos da entrega como modelos demonstrativos (D21).
+- Eventos para o `pedidos-service`: frete selecionado, entrega concluída e frete indisponível (D12).
+- Cancelamento: pedido cancelado cancela a solicitação ou a entrega e libera motorista e veículo.
+- Script de contingência que publica pedidos falsos (D23).
 - Requisitos transversais do kit (RFC 7807, health, métricas, idempotência, DLT, RBAC, paginação).
 
-### 4.2 Fora do escopo (proposta)
+### 4.2 Fora do escopo
 
 - GPS real, aplicativo de motorista ou integração com rastreadores.
-- Integração real com transportadoras ou agregadores de frete (pode virar extra, ver D7 na pauta).
-- Pagamento do frete, emissão de CT-e, nota fiscal ou qualquer documento fiscal real.
+- Integração real com transportadoras ou agregadores de frete (pode virar extra, D7).
+- Pagamento do frete e emissão de CT-e, nota fiscal ou qualquer documento fiscal com validade.
+- Notificação por e-mail ou SMS.
 - Roteirização com várias paradas, consolidação de cargas ou frete fracionado.
-- Cálculo de rota por estrada no MVP (a rota é uma linha interpolada; a rota por estrada é extra, ver D9).
+- Rota por estrada (a rota é uma linha interpolada; estrada é extra, D9).
+- Relógio acelerado nos serviços dos outros grupos (a diferença foi aceita, D18).
 
 ## 5. Atores
 
 | Ator | O que faz no nosso módulo |
 |---|---|
-| Comprador | Vê as cotações do seu pedido, compara e acompanha a entrega no mapa |
-| Fornecedor | Vê a coleta prevista e o andamento da entrega dos seus pedidos (a confirmar) |
-| Transportadora | Mantém seu perfil operacional, vê as cargas compatíveis, envia cotação e, opcionalmente, informa eventos da viagem |
-| Admin | Consulta tudo e o ranking de transportadoras |
-| Sistema | Gera cotações simuladas, fecha a janela de cotação, seleciona o frete e simula a viagem |
+| Comprador | Compara as cotações do seu pedido, escolhe o frete (ou deixa no automático), acompanha a entrega no mapa, recebe notificações e reporta ocorrências |
+| Fornecedor | Acompanha a coleta e a entrega dos seus pedidos e recebe notificações |
+| Transportadora | Mantém o perfil operacional, cadastra motoristas e veículos, vê as cargas compatíveis e envia cotações |
+| Admin | Consulta tudo, vê o ranking e controla o relógio do módulo |
+| Sistema | Gera cotações simuladas, controla os prazos, aplica a escolha automática, sorteia motorista e veículo e simula a viagem |
 
 ## 6. Glossário
 
 | Termo | Significado |
 |---|---|
-| Solicitação de frete | Pedido de transporte aberto pela logística para um pedido de compra. Tem origem, destino, tipo de carga, peso e janela de cotação |
-| Cotação | Proposta de uma transportadora para uma solicitação: preço, prazo em dias úteis, data prevista de entrega e validade |
-| Janela de cotação | Tempo em que a logística aceita cotações antes de selecionar. Kit: 10 s |
-| Seleção de frete | Escolha da cotação vencedora. Regra do kit: menor preço, desempate por menor prazo |
+| Solicitação de frete | Pedido de transporte aberto pela logística para um pedido de compra. Tem origem, destino, tipo de carga, peso e prazos de cotação |
+| Cotação | Proposta de uma transportadora para uma solicitação: preço, prazo em dias úteis, data prevista de entrega e validade. Pode ser simulada ou digitada |
+| Rodada automática | Os primeiros 10 s depois da abertura, em que as cotações simuladas chegam (o tempo do kit). Sem cotação nesse tempo, a solicitação vai a `SEM_COTACAO` |
+| Prazo de decisão | 12 h depois da abertura. Até lá, o comprador escolhe; depois, vale a regra automática |
+| Escolha do frete | Escolha da cotação vencedora, feita pelo comprador ou pela regra automática do kit: menor preço, desempate por menor prazo |
+| Relógio do módulo | Hora usada pelos dois serviços em todas as regras de tempo. O administrador pode acelerá-la |
+| Escala | Sorteio do motorista e do veículo da transportadora vencedora, entre os livres e compatíveis |
 | Entrega | Execução do transporte depois da seleção. Uma por pedido |
 | Evento de rastreio | Fato da viagem: coleta realizada, em trânsito, posição, parada, previsão atualizada, ocorrência, entrega realizada |
 | Previsão de chegada (ETA) | Data e hora estimadas de chegada, recalculadas durante a viagem |

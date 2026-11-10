@@ -1,6 +1,6 @@
 # 03. Eventos e integrações
 
-Proposta dos payloads que o grupo publica e do que precisamos nos eventos dos outros grupos. Quando estiver aprovada, cada evento ganha um JSON Schema e um exemplo em `docs/contratos/`, como fez o grupo de Fornecimento e Produtos.
+Payloads que o grupo publica e o que precisamos nos eventos dos outros grupos. Quando um contrato for aprovado, ele ganha JSON Schema e exemplo em `docs/contratos/`. O pedido ao grupo de Pedidos está pronto para envio em [`contratos/proposta-grupo-pedidos.md`](contratos/proposta-grupo-pedidos.md).
 
 ## 1. Envelope
 
@@ -21,7 +21,9 @@ Todos os eventos usam o envelope do kit (`services/common/events.py`):
 
 O guia do kit chama o campo de versão de `version`, mas o código e o `CONTRACTS.md` usam `eventVersion`. Seguimos o código.
 
-O `correlationId` do `pedido_criado` deve ser repassado em todos os eventos que ele origina (solicitação, cotações, seleção, rastreio e conclusão), para dar para seguir um pedido inteiro nos logs.
+O `correlationId` do `pedido_criado` é repassado em todos os eventos que ele origina, para dar para seguir um pedido inteiro nos logs.
+
+O `timestamp` do envelope é a **hora real**. As datas de negócio dentro do `payload` (previsão, coleta, entrega) estão no **relógio do módulo** (D18).
 
 ## 2. Tópicos do grupo
 
@@ -32,27 +34,30 @@ O `correlationId` do `pedido_criado` deve ser repassado em todos os eventos que 
 | `empresa_cadastrada` | usuarios | **transportadoras**, outros | `empresaId` | Kit. Precisamos de endereço e tipo (seção 4) |
 | `solicitacao_frete_criada` | **logística** | **transportadoras** | `solicitacaoFreteId` | Kit |
 | `cotacao_recebida` | **transportadoras** | **logística** | `solicitacaoFreteId` | Kit |
-| `frete_selecionado` | **logística** | pedidos, **transportadoras** (novo consumidor) | `pedidoId` | Kit, com consumidor a mais |
-| `rastreio_atualizado` | **transportadoras** | **logística** | `pedidoId` | **Novo** |
-| `entrega_concluida` | **logística** | pedidos | `pedidoId` | **Novo** |
+| `frete_selecionado` | **logística** | pedidos, **transportadoras** (novo consumidor) | `pedidoId` | Kit, com consumidor e campos a mais |
+| `rastreio_atualizado` | **transportadoras** | **logística** | `pedidoId` | **Novo** (D12) |
+| `entrega_concluida` | **logística** | pedidos | `pedidoId` | **Novo** (D12) |
+| `frete_indisponivel` | **logística** | pedidos | `pedidoId` | **Novo** (D12) |
+| `relogio_ajustado` | **logística** | **transportadoras** | `"relogio"` | **Novo** (D18), interno ao grupo |
 | `logistica.dlt`, `transportadoras.dlt` | nós | — | a do evento original | Kit |
 
 ## 3. Payloads
 
 ### 3.1 `pedido_criado` (consumido)
 
-O exemplo do guia traz `pedidoId`, `negociacaoId`, `compradorId`, `fornecedorId`, `produtoId`, `quantidade`, `valorTotal` e `status`. Para cotar e desenhar a rota, **pedimos ao grupo de Pedidos** que inclua:
+O exemplo do guia traz `pedidoId`, `negociacaoId`, `compradorId`, `fornecedorId`, `produtoId`, `quantidade`, `valorTotal` e `status`. **Pedimos ao grupo de Pedidos** que inclua também:
 
 | Campo novo | Tipo | Exemplo | Para quê |
 |---|---|---|---|
+| `produtoNome` | texto | `"Soja em grão"` | Dados da carga na tela |
 | `unidade` | texto | `"KG"` | Converter `quantidade` em peso |
-| `pesoKg` | número | `24000` | Alternativa a `unidade`, se o produto não for medido em massa |
-| `tipoTransporte` | texto | `"GRANEL"` | Filtrar transportadoras compatíveis (pendência P-27 do grupo de Produtos) |
+| `pesoKg` | número | `24000` | Peso para cotar e escalar o veículo |
+| `tipoTransporte` | texto | `"GRANEL"` | Filtrar transportadoras e veículos (P-27 do grupo de Produtos) |
 | `origem` | objeto | `{"cidade": "Sorriso", "uf": "MT"}` | Local de coleta (vem do fornecimento) |
 | `destino` | objeto | `{"cidade": "Santos", "uf": "SP"}` | Local de entrega (vem da demanda ou do cadastro do comprador) |
 | `dataEntregaDesejada` | data | `"2026-11-20"` | Prazo prometido, para medir atraso (opcional) |
 
-Se Pedidos não puder incluir esses dados, a alternativa é a logística montar cópias locais consumindo `produto_cadastrado`, `fornecimento_criado` e `empresa_cadastrada`. Funciona, mas são três consumidores a mais e o endereço do comprador continua faltando (D2).
+`valorTotal`, que já existe, vira o **valor da carga** na tela. Plano B, se Pedidos não puder: cópias locais de `produto_cadastrado`, `fornecimento_criado` e `empresa_cadastrada` (D2).
 
 ### 3.2 `solicitacao_frete_criada` (publicado pela logística)
 
@@ -61,6 +66,7 @@ Se Pedidos não puder incluir esses dados, a alternativa é a logística montar 
   "solicitacaoFreteId": "sol-5521",
   "pedidoId": "ped-998811",
   "produtoId": "prod-1",
+  "produtoNome": "Soja em grão",
   "compradorId": "emp-12",
   "fornecedorId": "emp-34",
   "tipoCarga": "GRANEL",
@@ -69,12 +75,12 @@ Se Pedidos não puder incluir esses dados, a alternativa é a logística montar 
   "destino": { "cidade": "Santos", "uf": "SP", "lat": -23.9608, "lon": -46.3336 },
   "distanciaKm": 2091,
   "dataColetaPrevista": "2026-11-10",
-  "cotacoesAte": "2026-11-09T21:30:10.000Z",
+  "prazoDecisaoEm": "2026-11-10T09:30:00.000Z",
   "status": "ABERTA"
 }
 ```
 
-O boilerplate do kit publica só `solicitacaoFreteId`, `pedidoId` e `status`.
+O boilerplate do kit publica só `solicitacaoFreteId`, `pedidoId` e `status`. `prazoDecisaoEm` é o fim do prazo de 12 h (D4): até lá, transportadoras podem cotar.
 
 ### 3.3 `cotacao_recebida` (publicado pelas transportadoras)
 
@@ -87,12 +93,12 @@ O boilerplate do kit publica só `solicitacaoFreteId`, `pedidoId` e `status`.
   "prazoDias": 4,
   "dataEntregaPrevista": "2026-11-16",
   "validaAte": "2026-11-11T21:30:00.000Z",
-  "origemCotacao": "AUTOMATICA",
+  "origemCotacao": "SIMULADA",
   "observacoes": null
 }
 ```
 
-O boilerplate do kit publica `cotacaoId`, `solicitacaoFreteId`, `transportadoraId`, `preco` e `prazoDias`. Os campos novos são opcionais para o consumidor, para não quebrar a compatibilidade `BACKWARD` do kit.
+`origemCotacao`: `SIMULADA` ou `DIGITADA` (D3). Os campos novos são opcionais para o consumidor, para não quebrar a compatibilidade `BACKWARD` do kit.
 
 ### 3.4 `frete_selecionado` (publicado pela logística)
 
@@ -101,17 +107,20 @@ O boilerplate do kit publica `cotacaoId`, `solicitacaoFreteId`, `transportadoraI
   "pedidoId": "ped-998811",
   "solicitacaoFreteId": "sol-5521",
   "entregaId": "ent-3301",
+  "tentativa": 1,
   "cotacaoId": "cot-8890",
   "transportadoraId": "transp-expressa",
   "preco": 9850.00,
   "prazoDias": 4,
   "dataEntregaPrevista": "2026-11-16",
-  "criterio": "AUTOMATICO_MENOR_PRECO",
+  "criterio": "ESCOLHA_COMPRADOR",
   "status": "FRETE_SELECIONADO"
 }
 ```
 
-Campos novos em relação ao boilerplate: `entregaId` (o simulador precisa dele para publicar o rastreio), `dataEntregaPrevista` e `criterio` (`AUTOMATICO_MENOR_PRECO` ou `ESCOLHA_COMPRADOR`, ver D5).
+- `criterio`: `ESCOLHA_COMPRADOR` ou `AUTOMATICO_MENOR_PRECO` (D5).
+- `tentativa`: começa em 1. Se a transportadora recusar a viagem por falta de motorista ou veículo (D20), a logística publica **outro** `frete_selecionado` para o mesmo pedido, com `tentativa` 2 e outra transportadora. O grupo de Pedidos precisa aceitar isso como atualização do frete, não como erro.
+- `entregaId`: o simulador usa para publicar o rastreio.
 
 ### 3.5 `rastreio_atualizado` (novo, publicado pelas transportadoras)
 
@@ -126,16 +135,24 @@ Campos novos em relação ao boilerplate: `entregaId` (o simulador precisa dele 
   "posicao": { "lat": -20.4697, "lon": -54.6201 },
   "progresso": 0.68,
   "previsaoChegada": "2026-11-16T14:30:00.000Z",
-  "veiculo": { "placa": "ABC1D23", "tipo": "CARRETA_GRANELEIRA" },
   "ocorridoEm": "2026-11-14T10:42:00.000Z"
 }
 ```
 
-`tipo`: `COLETA_REALIZADA`, `POSICAO`, `PARADA`, `PREVISAO_ATUALIZADA`, `OCORRENCIA` ou `ENTREGA_REALIZADA`. No `ENTREGA_REALIZADA`, o payload traz também `noPrazo` (booleano) e `atrasoHoras`.
+| `tipo` | Campos extras |
+|---|---|
+| `VIAGEM_ALOCADA` | `motorista` (`nome`, `telefone`, `cnhMascarada`), `veiculo` (`placa`, `tipo`), `coletaPrevista` |
+| `VIAGEM_RECUSADA` | `motivo` (`SEM_MOTORISTA`, `SEM_VEICULO`) |
+| `COLETA_REALIZADA` | — |
+| `POSICAO` | — |
+| `PARADA` | `duracaoPrevistaMin` |
+| `PREVISAO_ATUALIZADA` | `previsaoAnterior` |
+| `OCORRENCIA` | — |
+| `ENTREGA_REALIZADA` | `noPrazo`, `atrasoHoras` |
 
-`sequencia` cresce a cada evento da mesma entrega. Com a chave `pedidoId`, os eventos de um pedido ficam na mesma partição e chegam em ordem; mesmo assim, a logística ignora um evento com `sequencia` menor ou igual à última aplicada, para não voltar o caminhão no mapa depois de uma reentrega.
+`sequencia` cresce a cada evento da mesma entrega. Com a chave `pedidoId`, os eventos de um pedido chegam em ordem; mesmo assim, a logística ignora `sequencia` menor ou igual à última aplicada, para o caminhão não voltar no mapa depois de uma reentrega.
 
-Chave `pedidoId` (e não `entregaId`) porque cada pedido tem uma entrega só e isso alinha a chave com `frete_selecionado` e `entrega_concluida`.
+A CNH vai **mascarada** (ex.: `"***.***.789-10"`): a logística só precisa mostrá-la, e assim o dado pessoal completo fica só com a transportadora (D19).
 
 ### 3.6 `entrega_concluida` (novo, publicado pela logística)
 
@@ -153,25 +170,49 @@ Chave `pedidoId` (e não `entregaId`) porque cada pedido tem uma entrega só e i
 
 O `pedidos-service` consome e move o pedido para `ENTREGUE`.
 
-**Por que um tópico novo:** o pedido só chega a `ENTREGUE` hoje por `PATCH` HTTP no `pedidos-service`, o que vai contra a regra do guia de não avançar o fluxo por chamada síncrona. E `pedido_atualizado` pertence ao `pedidos-service`, então não podemos publicar nele.
+### 3.7 `frete_indisponivel` (novo, publicado pela logística)
+
+```json
+{
+  "pedidoId": "ped-998811",
+  "solicitacaoFreteId": "sol-5521",
+  "motivo": "SEM_COTACAO",
+  "detalhe": "Nenhuma transportadora cotou em 12 h",
+  "ocorridoEm": "2026-11-10T09:30:00.000Z"
+}
+```
+
+`motivo`: `SEM_COTACAO` (12 h sem nenhuma cotação) ou `SEM_TRANSPORTADORA_DISPONIVEL` (todas as cotações recusaram a viagem). O `pedidos-service` consome e cancela o pedido; o `pedido_atualizado` com `CANCELADO` que ele publica fecha o ciclo na logística.
+
+**Por que tópicos novos:** o pedido só muda de status hoje por `PATCH` HTTP no `pedidos-service`, o que vai contra a regra do guia de não avançar o fluxo por chamada síncrona. E `pedido_atualizado` pertence ao `pedidos-service`, então não podemos publicar nele.
+
+### 3.8 `relogio_ajustado` (novo, interno ao grupo)
+
+```json
+{
+  "versao": 7,
+  "baseReal": "2026-11-09T21:30:00.000Z",
+  "baseVirtual": "2026-11-12T08:00:00.000Z",
+  "fator": 360,
+  "ajustadoPor": "usr-admin-1"
+}
+```
+
+Só os nossos dois serviços usam. Cada cópia do `transportadoras-service` consome com o seu próprio grupo de consumidores, para todas receberem o ajuste (arquitetura, seção 7). Chave fixa `"relogio"`, para os ajustes ficarem em ordem.
 
 ## 4. O que precisamos de cada grupo
 
 | Grupo | Pedido | Prioridade |
 |---|---|---|
-| **Mercado, Negociação e Pedidos** | Incluir no `pedido_criado` os campos da seção 3.1 | Alta |
-| | Consumir `frete_selecionado` (hoje o boilerplate só aceita `PATCH /status`) e o novo `entrega_concluida` | Alta |
-| | Definir quem move o pedido de `CRIADO` para `AGUARDANDO_FRETE`. Sugestões: criar o pedido já em `AGUARDANDO_FRETE`, ou consumir `solicitacao_frete_criada` | Média |
-| | Confirmar que `pedido_atualizado` traz o status `CANCELADO` | Média |
+| **Mercado, Negociação e Pedidos** | Tudo o que está em [`contratos/proposta-grupo-pedidos.md`](contratos/proposta-grupo-pedidos.md): campos no `pedido_criado`, consumo de `frete_selecionado` (inclusive a troca de transportadora), `entrega_concluida` e `frete_indisponivel` | Alta |
 | **Fornecimento e Produtos** | Responder a P-06 e P-27 do documento deles: fechar a lista de tipos de transporte (`GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO`) e confirmar que o tipo chega pelo `pedido_criado` | Alta |
 | | Origem do fornecimento em cidade e UF, para servir de origem da coleta | Alta |
 | **Autenticação** | `empresa_cadastrada` com tipo da empresa (para cadastrar transportadoras) e endereço com cidade e UF (destino do comprador) | Alta |
 | | Confirmar o nome do claim da empresa no JWT (`empresaId` no código, `empresa_id` no guia) | Média |
 | **Compra e Demanda** | Se o destino vier da demanda, incluir cidade e UF de entrega em `demanda_criada` para chegar até o pedido | Média |
-| **Infraestrutura** | Criar `rastreio_atualizado` e `entrega_concluida` no `init_topics.sh` e no `CONTRACTS.md` | Alta |
+| **Infraestrutura** | Criar `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` no `init_topics.sh` e no `CONTRACTS.md` | Alta |
 | | Registrar `transportadoras-service` como consumidor de `frete_selecionado` | Média |
 | | Correções do kit listadas na [análise](04-analise-do-kit.md) | Alta |
-| | Se usarmos SSE: `proxy_buffering off` e timeout maior em `/api/v1/logistica/entregas/` | Baixa |
-| **Banco de Dados** | Aplicar a proposta de DDL dos schemas `logistica` e `transportadoras` ([arquitetura](02-arquitetura-proposta.md), seção 7) e a correção dos GRANTs (K1) | Alta |
-| **UX/UI** | Alinhar o formato da API com as telas `/fretes/solicitacoes` e `/fretes/entregas/{id}`, e combinar quem implementa o mapa (D11) | Alta |
-| **Teste e Qualidade** | Entregar as especificações ESP-LOG-001 e ESP-TRP-001 no modelo ERS-LLM, com critérios de aceitação | Alta |
+| **Banco de Dados** | Aplicar a proposta de DDL dos schemas `logistica` e `transportadoras` ([arquitetura](02-arquitetura-proposta.md), seção 9) e a correção dos GRANTs (K1) | Alta |
+| **UX/UI** | Nenhuma pendência: o design está entregue e as telas são nossas (D11). Avisar que vamos implementá-las | Baixa |
+| **Teste e Qualidade** | Entregar as especificações ESP-LOG-001 e ESP-TRP-001 no modelo ERS-LLM. Avisar que o comprador escolhe o frete e que a regra do kit vale no modo automático (D5) | Alta |

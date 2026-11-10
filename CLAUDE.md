@@ -13,7 +13,11 @@ Grupo 5 (Logística e Transporte) do **Portal B2B Distribuído**, trabalho da di
 
 Além do que o kit define (cotação e seleção de frete), o professor pediu **rastreio visual da entrega** e **comparação entre transportadoras**.
 
-**Situação:** planejamento. Ainda não há código. As decisões em aberto estão em `docs/06-pauta-de-decisoes.md` (D1 a D17, perguntas P1 a P5). Não trate uma recomendação da pauta como decisão tomada: confira a coluna "Decisão" antes de implementar.
+**Situação:** decisões tomadas, ainda sem código. As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
+
+O código é gerado por IA, com conhecimento do professor. Cada parte entregue precisa vir com um arquivo em `docs/explicacoes/` (D24): o que a parte faz, em linguagem simples; por que foi feita assim; e as perguntas que o professor pode fazer, com as respostas. O grupo não tem experiência com as ferramentas, então explique sem jargão.
+
+Regras de negócio que fogem do kit: o comprador escolhe o frete em até 12 h (a regra do menor preço vale no modo automático e quando o prazo vence); toda regra de tempo usa o relógio do módulo, nunca a hora do computador (D18).
 
 ## Git
 
@@ -27,11 +31,13 @@ Além do que o kit define (cotação e seleção de frete), o professor pediu **
 | Arquivo | Conteúdo |
 |---|---|
 | `docs/01-contexto-e-escopo.md` | O que o kit define, o que o professor pediu, escopo e glossário |
-| `docs/02-arquitetura-proposta.md` | Responsabilidades, fluxo, estados, comparação, rastreio, modelo de dados, API |
+| `docs/02-arquitetura-proposta.md` | Responsabilidades, fluxo, estados, escolha, rastreio, relógio, notificações, modelo de dados, API, pontos de sistemas distribuídos |
 | `docs/03-eventos-e-integracoes.md` | Payloads, tópicos novos e pedidos a outros grupos |
 | `docs/04-analise-do-kit.md` | Problemas do kit (K1 a K11 do grupo de Produtos; L1 a L15 nossos) |
-| `docs/05-plano-de-trabalho.md` | Fases F0 a F6, frentes A a E, testes e roteiro da demonstração |
-| `docs/06-pauta-de-decisoes.md` | Decisões e perguntas ao professor |
+| `docs/05-plano-de-trabalho.md` | Etapas 0 a 5, testes e roteiro da demonstração |
+| `docs/06-pauta-de-decisoes.md` | Decisões D1 a D24 e perguntas ao professor |
+| `docs/contratos/` | Propostas de contrato com outros grupos e, quando aprovados, JSON Schemas |
+| `docs/explicacoes/` | Explicação de cada parte implementada, para o grupo estudar (ainda vazio) |
 
 Convenções:
 
@@ -71,11 +77,11 @@ Repositórios dos outros grupos usados como referência (só leitura):
 - Eventos com o envelope do kit (`eventId`, `eventType`, `eventVersion`, `timestamp`, `source`, `correlationId`, `aggregateId`, `payload`) e `aggregateId` como chave de partição.
 - Consumo idempotente com `processed_events` gravado na mesma transação da alteração; 3 tentativas (1 s, 2 s, 4 s) e depois `logistica.dlt` ou `transportadoras.dlt`.
 - Cada serviço roda em duas instâncias (`app1` e `app2`). Nada de estado só em memória; tarefas com hora marcada não podem rodar duas vezes.
-- Tópicos novos (`rastreio_atualizado`, `entrega_concluida`) são proposta até a Infraestrutura aprovar.
+- Tópicos novos (`rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel`, `relogio_ajustado`) são proposta até a Infraestrutura aprovar.
 
-## Stack (proposta, D16)
+## Stack (D16)
 
-Python 3.12, FastAPI, `aiokafka`, `psycopg2`, `pytest` com `httpx`, k6 para carga. Tela de rastreio com HTML, JavaScript e Leaflet sobre OpenStreetMap, salvo decisão diferente com o grupo de UX (D11).
+Python 3.12, FastAPI, `aiokafka`, `psycopg2`, `pytest` com `httpx`, k6 para carga. Telas em HTML, JavaScript e Leaflet sobre OpenStreetMap, seguindo o mockup do UX (D11).
 
 Os boilerplates do kit não consomem Kafka, guardam dados em memória e têm os problemas listados em `docs/04-analise-do-kit.md`. Ao copiar código do kit, aplique as correções e registre o que foi mudado.
 

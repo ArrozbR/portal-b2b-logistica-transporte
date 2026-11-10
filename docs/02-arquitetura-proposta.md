@@ -1,14 +1,14 @@
-# 02. Arquitetura proposta
+# 02. Arquitetura
 
-Tudo neste documento é **proposta para discussão**. Os pontos que dependem de decisão do grupo apontam para a [pauta](06-pauta-de-decisoes.md) (D1, D2...).
+Arquitetura dos dois serviços conforme as decisões da [pauta](06-pauta-de-decisoes.md) (D1 a D24). O que ainda depende de aprovação externa está marcado como **proposta**: os tópicos novos (Infra) e os campos novos do `pedido_criado` (grupo de Pedidos).
 
 ## 1. Visão geral
 
-A proposta mantém os **dois serviços do kit** (D1). O rastreio fica dentro do `logistica-service`, e a simulação das cotações e da viagem fica no `transportadoras-service`, porque no mundo real é a transportadora quem cota e quem informa onde o caminhão está.
+Os **dois serviços do kit** (D1). O `logistica-service` é dono da solicitação de frete, da escolha, da entrega, do rastreio, das notificações e do relógio do módulo. O `transportadoras-service` é dono das transportadoras, dos motoristas e veículos, das cotações e da viagem, porque no mundo real é a transportadora quem cota, escala o motorista e informa onde o caminhão está.
 
 ```mermaid
 flowchart LR
-    FE[Telas de comparação e rastreio<br/>/logistica/ ou front do UX] -->|HTTPS /api/v1| GW[Gateway Nginx :8080]
+    FE[Telas do módulo<br/>sobre o mockup do UX] -->|HTTPS /api/v1| GW[Gateway Nginx :8080]
     GW --> LOG[logistica-service :8108<br/>app1 e app2]
     GW --> TRP[transportadoras-service :8109<br/>app1 e app2]
     LOG --- DBL[(portal_b2b<br/>schema logistica)]
@@ -17,43 +17,46 @@ flowchart LR
     PED[pedidos-service] -->|pedido_criado<br/>pedido_atualizado| K{{Redpanda :19092}}
     USR[usuarios-service] -->|empresa_cadastrada| K
     K -->|pedido_criado, pedido_atualizado<br/>cotacao_recebida, rastreio_atualizado*| LOG
-    LOG -->|solicitacao_frete_criada<br/>frete_selecionado<br/>entrega_concluida*| K
-    K -->|solicitacao_frete_criada<br/>frete_selecionado<br/>empresa_cadastrada| TRP
+    LOG -->|solicitacao_frete_criada, frete_selecionado<br/>entrega_concluida*, frete_indisponivel*<br/>relogio_ajustado*| K
+    K -->|solicitacao_frete_criada, frete_selecionado<br/>empresa_cadastrada, relogio_ajustado*| TRP
     TRP -->|cotacao_recebida<br/>rastreio_atualizado*| K
-    K -->|frete_selecionado<br/>entrega_concluida*| PED
+    K -->|frete_selecionado<br/>entrega_concluida*, frete_indisponivel*| PED
 ```
 
-`*` tópicos novos (D12). O `transportadoras-service` consumir `frete_selecionado` também é novidade: no catálogo do kit só o `pedidos-service` consome esse tópico.
+`*` tópicos novos, a propor à Infraestrutura (D12, D18). O `transportadoras-service` consumir `frete_selecionado` também é novidade: no catálogo do kit só o `pedidos-service` consome esse tópico.
 
 ## 2. Responsabilidades
 
 ### 2.1 `logistica-service` (8108)
 
-É o dono da **solicitação de frete**, da **seleção** e da **entrega**. É o único serviço que fala com o resto do portal sobre frete.
-
 | Responsabilidade | Entrada | Saída |
 |---|---|---|
-| Abrir solicitação de frete | Consome `pedido_criado` | Grava a solicitação com origem, destino, tipo de carga, peso e fim da janela. Publica `solicitacao_frete_criada` |
-| Receber cotações | Consome `cotacao_recebida` | Grava a cotação se a solicitação ainda estiver aberta e a cotação for válida |
-| Fechar a janela e selecionar | Rotina periódica que encontra janelas vencidas (D4, D14), ou comando do comprador (D5) | Aplica a regra do kit, marca a vencedora, cria a entrega e publica `frete_selecionado` |
-| Comparar cotações | `GET` da comparação | Cotações lado a lado com indicadores e o desempenho de cada transportadora (D6) |
-| Manter a entrega e o rastreio | Consome `rastreio_atualizado` | Atualiza status, posição, progresso, previsão e linha do tempo |
-| Concluir a entrega | Evento `ENTREGA_REALIZADA` no rastreio | Publica `entrega_concluida` |
-| Cancelar | Consome `pedido_atualizado` com status `CANCELADO` | Cancela a solicitação ou a entrega |
-| Servir as telas | API REST | Solicitações, cotações, comparação, entregas e rastreio |
+| Abrir solicitação de frete | Consome `pedido_criado` | Grava a solicitação (origem, destino, carga, peso, produto, valor) com os prazos de D4. Publica `solicitacao_frete_criada` |
+| Receber cotações | Consome `cotacao_recebida` | Grava a cotação se o frete ainda não foi escolhido. Avisa o comprador da primeira cotação |
+| Controlar os prazos | Rotina periódica (D14) | Rodada de 10 s vencida sem cotação → `SEM_COTACAO` e aviso. Prazo de 12 h vencido → escolha automática ou frete indisponível |
+| Comparar cotações | `GET` da comparação | Cotações lado a lado, selos, gráfico e pontualidade de cada transportadora (D6) |
+| Escolher o frete | Comprador escolhe ou clica em "automático" (D5); ou prazo vence | Marca a vencedora, cria a entrega e publica `frete_selecionado` |
+| Trocar de transportadora | `rastreio_atualizado` do tipo `VIAGEM_RECUSADA` (D20) | Escolhe a próxima cotação pela regra do kit e publica outro `frete_selecionado`. Sem cotação restante → `frete_indisponivel` |
+| Manter a entrega e o rastreio | Consome `rastreio_atualizado` | Motorista, veículo, posição, progresso, previsão e linha do tempo |
+| Concluir a entrega | Rastreio `ENTREGA_REALIZADA` | Publica `entrega_concluida` e atualiza a pontualidade da transportadora |
+| Cancelar | Consome `pedido_atualizado` com `CANCELADO` | Cancela a solicitação ou a entrega |
+| Notificar | Mudanças acima | Notificações para comprador e fornecedor (D22) |
+| Gerar documentos | `GET` do documento | Modelos demonstrativos com os dados da entrega (D21) |
+| Relógio do módulo | Administrador | Grava o novo ritmo e publica `relogio_ajustado` (D18) |
 
 ### 2.2 `transportadoras-service` (8109)
 
-É o dono das **transportadoras**, das **cotações que elas emitem** e da **viagem**.
-
 | Responsabilidade | Entrada | Saída |
 |---|---|---|
-| Cadastrar transportadoras | Consome `empresa_cadastrada` (empresas do tipo transportadora). Perfil operacional pela API | Tipos de carga, UFs atendidas, capacidade, tabela de preços, frota |
-| Cotar automaticamente | Consome `solicitacao_frete_criada` | Filtra as transportadoras compatíveis, calcula preço e prazo e publica um `cotacao_recebida` por transportadora (D3) |
-| Receber cotação manual | `POST` do usuário `transportadora` | Valida e publica `cotacao_recebida` |
-| Listar cargas disponíveis | Cópia local das solicitações recebidas | Tela "Solicitações de frete" do UX |
-| Simular a viagem | Consome `frete_selecionado` quando a vencedora é uma das suas | Agenda a coleta e publica `rastreio_atualizado` a cada passo (D8) |
-| Indicadores de desempenho | Resultado das viagens | Entregas feitas, % no prazo, atraso médio, por transportadora e tipo de carga |
+| Cadastrar transportadoras | Consome `empresa_cadastrada` (tipo transportadora); perfil operacional pela API | Tipos de carga, UFs atendidas, tabela de preços |
+| Cadastrar motoristas e veículos | API, perfil `transportadora` (D19) | Motoristas (nome, telefone, CNH) e veículos (placa, tipo, capacidade, tipos de carga) |
+| Cotar automaticamente | Consome `solicitacao_frete_criada` | Para cada transportadora compatível **e com motorista e veículo livres** (D20), calcula preço e prazo e publica `cotacao_recebida` |
+| Receber cotação digitada | `POST` do usuário `transportadora` | Mesma checagem de disponibilidade; publica `cotacao_recebida` |
+| Listar cargas disponíveis | Cópia local das solicitações | Tela "Solicitações de frete" |
+| Escalar motorista e veículo | Consome `frete_selecionado` da sua transportadora | Sorteia entre os livres e compatíveis e publica `VIAGEM_ALOCADA`. Se não houver, publica `VIAGEM_RECUSADA` |
+| Simular a viagem | Rotina a cada 30 s (D10) | Publica `rastreio_atualizado` com posição, progresso e previsão |
+| Indicadores | Resultado das viagens | Entregas, % no prazo e atraso médio por transportadora e tipo de carga |
+| Relógio do módulo | Consome `relogio_ajustado` | Usa o mesmo relógio da logística |
 
 ## 3. Fluxo ponta a ponta
 
@@ -64,59 +67,76 @@ sequenceDiagram
     participant K as Redpanda
     participant LOG as logistica-service
     participant TRP as transportadoras-service
-    participant FE as Tela (comprador)
+    participant C as Comprador (tela)
 
     PED->>K: pedido_criado
     K->>LOG: pedido_criado
-    LOG->>LOG: cria solicitação e abre janela de cotação
     LOG->>K: solicitacao_frete_criada
     K->>TRP: solicitacao_frete_criada
-    TRP->>TRP: filtra transportadoras compatíveis, calcula preço e prazo
-    TRP->>K: cotacao_recebida (uma por transportadora)
+    TRP->>K: cotacao_recebida (simuladas, segundos depois)
     K->>LOG: cotacao_recebida
-    Note over LOG: janela vence (10 s no kit)
-    LOG->>LOG: menor preço, desempate menor prazo, cria entrega
+    LOG-->>C: notificação "cotações disponíveis"
+    Note over TRP,LOG: cotações digitadas podem chegar até a escolha
+    C->>LOG: escolhe uma cotação ou clica em "automático"
+    Note over LOG: se o comprador não decidir em 12 h, vale a regra do kit
     LOG->>K: frete_selecionado
     K->>PED: pedido vai a FRETE_SELECIONADO
-    K->>TRP: inicia a viagem simulada da vencedora
-    loop a cada passo da simulação
-        TRP->>K: rastreio_atualizado *
-        K->>LOG: rastreio_atualizado *
-        LOG->>LOG: atualiza posição, progresso, previsão e linha do tempo
+    K->>TRP: frete_selecionado
+    TRP->>TRP: sorteia motorista e veículo livres e compatíveis
+    TRP->>K: rastreio_atualizado (VIAGEM_ALOCADA)
+    loop a cada 30 s
+        TRP->>K: rastreio_atualizado (POSICAO, PARADA, PREVISAO_ATUALIZADA)
+        K->>LOG: rastreio_atualizado
     end
-    FE->>LOG: GET /entregas/{id}/rastreio (polling, D10)
-    LOG->>K: entrega_concluida *
+    C->>LOG: GET /entregas/{id}/rastreio (a cada 5 s)
+    TRP->>K: rastreio_atualizado (ENTREGA_REALIZADA)
+    K->>LOG: rastreio_atualizado
+    LOG->>K: entrega_concluida
     K->>PED: pedido vai a ENTREGUE
 ```
 
-Pontos em aberto neste fluxo:
+Caminhos alternativos:
 
-- Quem move o pedido de `CRIADO` para `AGUARDANDO_FRETE`? Hoje ninguém faz isso por evento. Uma opção é o `pedidos-service` consumir `solicitacao_frete_criada`; outra é ele já criar o pedido em `AGUARDANDO_FRETE` (ver [eventos](03-eventos-e-integracoes.md), seção 4).
-- O que acontece se a janela vencer sem cotação nenhuma? Proposta: a solicitação vai para `SEM_COTACAO`, a logística reabre uma vez com janela maior e, se falhar de novo, registra o problema e o pedido fica em `AGUARDANDO_FRETE` (D4).
+| Situação | O que acontece |
+|---|---|
+| Nenhuma cotação na rodada de 10 s | Solicitação vai a `SEM_COTACAO`; comprador e fornecedor são avisados. Continua aceitando cotações |
+| Nenhuma cotação em 12 h | Logística publica `frete_indisponivel`; o grupo de Pedidos cancela o pedido |
+| Transportadora vencedora sem motorista ou veículo livre | `VIAGEM_RECUSADA`; a logística passa para a próxima cotação e avisa o comprador. Sem cotação restante → `frete_indisponivel` |
+| Pedido cancelado | `pedido_atualizado` com `CANCELADO`; a logística cancela a solicitação ou a entrega e a transportadora libera motorista e veículo |
+
+Ponto em aberto com o grupo de Pedidos: quem move o pedido de `CRIADO` para `AGUARDANDO_FRETE`. Sugestão no [contrato](contratos/proposta-grupo-pedidos.md).
 
 ## 4. Estados
 
 ### 4.1 Solicitação de frete
 
-O kit prevê `ABERTA`, `COTADA` e `SELECIONADA`. A proposta acrescenta `SEM_COTACAO` e `CANCELADA`.
-
 ```mermaid
 stateDiagram-v2
     [*] --> ABERTA: pedido_criado
-    ABERTA --> COTADA: primeira cotação válida
-    COTADA --> SELECIONADA: janela vence ou comprador escolhe
-    ABERTA --> SEM_COTACAO: janela vence sem cotação
-    SEM_COTACAO --> ABERTA: reabertura (1 vez)
+    ABERTA --> COTADA: primeira cotação
+    ABERTA --> SEM_COTACAO: 10 s sem cotação
+    SEM_COTACAO --> COTADA: cotação chega
+    COTADA --> SELECIONADA: comprador escolhe, "automático" ou 12 h
+    SELECIONADA --> SELECIONADA: viagem recusada, próxima cotação
+    SEM_COTACAO --> INDISPONIVEL: 12 h sem cotação
+    SELECIONADA --> INDISPONIVEL: viagem recusada e sem cotação restante
     ABERTA --> CANCELADA: pedido cancelado
     COTADA --> CANCELADA: pedido cancelado
+    SEM_COTACAO --> CANCELADA: pedido cancelado
     SELECIONADA --> [*]
+    INDISPONIVEL --> [*]
+    CANCELADA --> [*]
 ```
+
+O kit prevê só `ABERTA`, `COTADA` e `SELECIONADA`.
 
 ### 4.2 Entrega
 
 ```mermaid
 stateDiagram-v2
-    [*] --> AGUARDANDO_COLETA: frete_selecionado
+    [*] --> AGUARDANDO_ALOCACAO: frete_selecionado
+    AGUARDANDO_ALOCACAO --> AGUARDANDO_COLETA: VIAGEM_ALOCADA
+    AGUARDANDO_ALOCACAO --> RECUSADA: VIAGEM_RECUSADA
     AGUARDANDO_COLETA --> EM_TRANSITO: COLETA_REALIZADA
     EM_TRANSITO --> EM_TRANSITO: POSICAO, PARADA, PREVISAO_ATUALIZADA, OCORRENCIA
     EM_TRANSITO --> ENTREGUE: ENTREGA_REALIZADA
@@ -125,36 +145,37 @@ stateDiagram-v2
     ENTREGUE --> [*]
 ```
 
-`PARADA`, `PREVISAO_ATUALIZADA` e `OCORRENCIA` são eventos da linha do tempo, não estados. A entrega guarda uma marca `com_ocorrencia` para a tela destacar.
+Uma entrega `RECUSADA` fica no histórico; a próxima cotação gera uma entrega nova para o mesmo pedido (campo `tentativa`). `PARADA`, `PREVISAO_ATUALIZADA` e `OCORRENCIA` são eventos da linha do tempo, não estados.
 
-## 5. Comparação entre transportadoras
+## 5. Comparação e escolha do frete
 
-O kit já fixa a regra da **seleção automática**: menor preço e, em empate, menor prazo. A proposta não mexe nela. A comparação serve para o comprador **ver e entender** as opções, e o ranking mostra quem cumpre o que promete (D6).
-
-### 5.1 Comparação das cotações de uma solicitação
-
-Para cada cotação:
+### 5.1 Comparação das cotações (D6)
 
 | Indicador | Origem |
 |---|---|
-| Preço total e preço por tonelada·km | Cotação e solicitação |
+| Preço total e preço por t·km | Cotação e solicitação |
 | Prazo em dias úteis e data prevista de entrega | Cotação |
-| Validade da proposta | Cotação |
-| Cotação automática ou manual | Cotação |
-| % de entregas no prazo, atraso médio, nº de entregas | Indicadores do `transportadoras-service` (cópia local na logística, ver 7.3) |
-| Selos: "mais barata", "mais rápida", "mais pontual", "vencedora pela regra" | Calculados na consulta |
+| Validade da proposta e observações | Cotação |
+| Simulada ou digitada | Cotação |
+| % de entregas no prazo, atraso médio, nº de entregas | Cópia local dos indicadores (seção 9.3) |
+| Selos: "mais barata", "mais rápida", "mais pontual", "recomendada pela regra" | Calculados na consulta |
 
-Na tela, além da tabela, um **gráfico de dispersão preço × prazo** deixa claro o equilíbrio entre custo e rapidez. Um índice ponderado de custo-benefício pode aparecer só como informação, sem mudar a seleção, a não ser que o professor aceite outra regra (pergunta P2 da pauta).
+A tela mostra ainda um **gráfico preço × prazo**. Com uma cotação só, a comparação mostra só ela, com aviso.
 
-**Desempate final:** se preço e prazo forem iguais, o kit não diz o que fazer, e o resultado passa a depender da ordem de chegada das mensagens. Proposta: desempatar pelo maior % de entregas no prazo e, por fim, pelo `transportadoraId` em ordem alfabética, para que o resultado seja sempre o mesmo.
+### 5.2 Regra automática
 
-### 5.2 Ranking de transportadoras
+Usada no botão "automático" e quando o prazo de 12 h vence (D5):
 
-Visão histórica por transportadora e por tipo de carga: entregas feitas, % no prazo, atraso médio, preço médio por tonelada·km e quantas vezes venceu. Os números vêm das viagens simuladas, então o ranking reflete o comportamento configurado de cada transportadora (ver 5.3).
+1. menor preço;
+2. menor prazo em dias úteis (desempate do kit);
+3. maior % de entregas no prazo;
+4. `transportadoraId` em ordem alfabética, para o resultado ser sempre o mesmo.
 
-### 5.3 Motor de cotação simulada
+### 5.3 Ranking
 
-Para a comparação fazer sentido, preço e prazo precisam depender da carga. Proposta de fórmula, com parâmetros por transportadora em `transportadoras.regra_cotacao`:
+Por transportadora e tipo de carga: entregas feitas, % no prazo, atraso médio, preço médio por t·km e quantas vezes venceu. Os números vêm das viagens simuladas.
+
+### 5.4 Motor de cotação simulada
 
 ```
 distancia_km = haversine(origem, destino) × 1,3        (fator de sinuosidade da estrada)
@@ -162,143 +183,226 @@ preco        = max(preco_minimo, (tarifa_km × distancia_km + tarifa_ton × peso
 prazo_dias   = prazo_base_dias + ceil(distancia_km / km_por_dia)
 ```
 
-Exemplo: Sorriso (MT) a Santos (SP), mesmo cenário dos mockups do UX, dá cerca de 1.609 km em linha reta e **≈ 2.090 km** com o fator 1,3.
-
-Transportadoras de exemplo, com perfis diferentes para gerar escolhas diferentes:
+Exemplo: Sorriso (MT) a Santos (SP), o cenário dos mockups, dá cerca de 1.609 km em linha reta e **≈ 2.090 km** com o fator 1,3.
 
 | Perfil | Tipos de carga | Característica |
 |---|---|---|
-| Expressa | `CARGA_SECA`, `GRANEL` | Cara e rápida (`km_por_dia` alto), pontual |
+| Expressa | `CARGA_SECA`, `GRANEL` | Cara e rápida, pontual |
 | Econômica | `CARGA_SECA`, `GRANEL` | Barata e lenta, atrasa com frequência |
 | Graneleira regional | `GRANEL` | Preço médio, atende só MT, GO, MS, SP e PR |
 | Refrigerada | `REFRIGERADO` | Única que leva carga refrigerada |
 | Perigosos | `PERIGOSO` | Única habilitada para carga perigosa |
 
-Cada transportadora tem também uma **probabilidade de atraso**, usada pelo simulador da viagem. É isso que alimenta o ranking. Os nomes de exemplo são fictícios.
+Cada transportadora tem uma **probabilidade de atraso**, usada pelo simulador, e é isso que alimenta o ranking. Nomes fictícios. O cálculo é determinístico: qualquer variação usa uma semente derivada do `solicitacaoFreteId`.
 
-Para testes, o cálculo precisa ser determinístico. Se houver variação aleatória, ela usa uma semente fixa derivada do `solicitacaoFreteId`.
+Uma transportadora só cota se tiver **motorista e veículo livres e compatíveis** (D20). A checagem não reserva nada; a reserva acontece na escala (seção 6.2).
 
 ## 6. Rastreio visual
 
-### 6.1 De onde vem a posição
+### 6.1 Cadastro de motoristas e veículos (D19)
 
-Do **simulador de viagem** no `transportadoras-service` (D8). Quando recebe `frete_selecionado` de uma solicitação vencida por uma das suas transportadoras:
+| Cadastro | Campos |
+|---|---|
+| Motorista | nome, telefone, número e categoria da CNH, validade da CNH, ativo |
+| Veículo | placa, tipo (`CARRETA_GRANELEIRA`, `BAU`, `REFRIGERADO`, `TANQUE`...), capacidade em kg, tipos de carga atendidos, ativo |
 
-1. Monta a rota: lista de pontos entre origem e destino (D9: linha interpolada no MVP).
+A tela segue o estilo do mockup do UX.
+
+### 6.2 Escala do motorista e do veículo
+
+Quando o `transportadoras-service` recebe um `frete_selecionado` de uma das suas transportadoras:
+
+1. Filtra os motoristas e veículos **da transportadora**, **ativos**, **livres** (sem viagem em andamento), com **tipo de carga compatível**, **capacidade ≥ peso** e CNH válida.
+2. **Sorteia** um motorista e um veículo entre os que passaram.
+3. Marca os dois como ocupados **na mesma transação**, travando as linhas com `FOR UPDATE SKIP LOCKED`. Assim duas viagens que chegam ao mesmo tempo nunca pegam o mesmo caminhão.
+4. Publica `VIAGEM_ALOCADA` com motorista e veículo. Se ninguém passou no filtro, publica `VIAGEM_RECUSADA` (D20).
+
+Motorista e veículo voltam a ficar livres na entrega ou no cancelamento.
+
+### 6.3 Simulação da viagem
+
+1. Monta a rota: cerca de 50 pontos interpolados entre origem e destino (D9), com coordenadas da tabela de cidades (D15).
 2. Agenda a coleta e publica `COLETA_REALIZADA`.
-3. A cada passo, avança o veículo e publica `POSICAO` com coordenadas, progresso e previsão.
+3. A cada **30 s reais** (D10), calcula a posição pelo **relógio do módulo** (seção 7) e publica `POSICAO` com coordenadas, progresso e previsão.
 4. Pode publicar `PARADA` (descanso do motorista) e, quando sorteia um atraso, `PREVISAO_ATUALIZADA`.
-5. No último ponto, publica `ENTREGA_REALIZADA`.
+5. No fim da rota, publica `ENTREGA_REALIZADA` com `noPrazo` e `atrasoHoras`.
 
-O tempo é acelerado por uma variável de ambiente (`SIM_FATOR_TEMPO`), por exemplo 1 dia de viagem em 1 ou 2 minutos, para caber na apresentação. O usuário `transportadora` também pode informar eventos à mão (opcional).
+Como a posição sai do relógio, e não de um contador de passos, acelerar o relógio acelera a viagem sem mudar o código do simulador.
 
-### 6.2 Coordenadas
+### 6.4 Como a tela recebe as atualizações
 
-O kit não tem endereço com coordenadas. Proposta para o MVP: uma tabela fixa com cerca de 30 cidades relevantes para o cenário (polos do agro e portos), com nome, UF, latitude e longitude (D15). Origem e destino chegam como cidade e UF e são convertidos por essa tabela.
+Cada serviço roda em duas cópias no mesmo grupo de consumidores. Cada evento de rastreio chega a **uma** delas, mas a tela pode estar ligada à outra. Por isso a tela lê sempre do **banco**: chama `GET /entregas/{id}/rastreio` a cada 5 s. Não há mudança no gateway. SSE fica como extra.
 
-### 6.3 Como a tela recebe as atualizações
+### 6.5 Tela de rastreamento
 
-Cada serviço roda em duas instâncias (`app1` e `app2`) no mesmo grupo de consumidores. Cada evento de rastreio chega a **uma** delas, mas a tela pode estar ligada à outra. Por isso a tela lê sempre do **banco**, nunca do consumidor em memória.
+Segue o mockup `portal_b2b_07_rastreamento.png`, com **Leaflet** e **OpenStreetMap**:
 
-| Opção | Como funciona | Custo |
+| Área | Dados | Origem |
 |---|---|---|
-| **Polling** (recomendado no MVP) | A tela chama `GET /entregas/{id}/rastreio` a cada 5 s | Nenhuma mudança no gateway. Funciona com duas instâncias |
-| SSE | `GET /entregas/{id}/stream`; o servidor consulta o banco e empurra mudanças | Exige `proxy_buffering off` e timeout maior no Nginx (pedido à Infra) |
-| WebSocket | Canal bidirecional | Exige configuração de upgrade no Nginx. Não precisamos de bidirecional |
+| Cabeçalho | status, progresso, previsão de chegada, transportadora, veículo | Entrega |
+| Mapa | origem, destino, rota percorrida e restante, posição atual | Rota e rastreio |
+| Linha do tempo | coleta, trânsito, paradas, previsões, ocorrências, entrega | Eventos de rastreio |
+| Dados da carga | produto, peso, tipo, valor, origem, destino, coleta, previsão | Pedido (via `pedido_criado`) e entrega |
+| Motorista e veículo | nome, telefone, CNH mascarada, placa, tipo, contato da transportadora | `VIAGEM_ALOCADA` |
+| Documentos | CT-e, romaneio, nota fiscal, comprovante de coleta | Modelos demonstrativos (seção 8.2) |
+| Ações | "Reportar ocorrência" e "Mais ações" | API de ocorrências |
 
-### 6.4 Tela
+Se o mapa não carregar, a tela mostra origem, destino, última posição e última atualização em texto (critério UX-RAS-03 do UX).
 
-Baseada no mockup do UX (`portal_b2b_07_rastreamento.png`), com **Leaflet** e mapa do **OpenStreetMap**:
+## 7. Relógio do módulo (D18)
 
-- Cabeçalho: status, progresso em %, previsão de chegada, transportadora e veículo.
-- Mapa: origem, destino, rota percorrida (linha cheia), rota restante (tracejada) e posição atual do veículo.
-- Linha do tempo com os eventos de rastreio.
-- Dados da carga (produto, peso, tipo, origem, destino, coleta, previsão).
-- Aviso "dados simulados" e fallback em texto se o mapa não carregar (critério UX-RAS-03 do UX).
+Os serviços nunca usam a hora do computador para regra de negócio. Usam o **relógio do módulo**:
 
-Quem implementa a tela é a decisão D11.
+```
+agora_virtual = base_virtual + (agora_real − base_real) × fator
+```
 
-## 7. Modelo de dados
+| Campo | Significado |
+|---|---|
+| `base_real` | Hora real em que o ritmo foi alterado pela última vez |
+| `base_virtual` | Hora do módulo naquele momento |
+| `fator` | Velocidade: 1 = tempo real; 360 = 3 dias passam em 12 minutos |
+| `versao` | Número crescente a cada alteração |
 
-Proposta para levar ao grupo de Banco de Dados. "Kit" indica que a tabela já existe e será estendida.
+Como funciona:
 
-### 7.1 Schema `logistica`
+1. O administrador altera o fator (ou avança o relógio) pela tela, em `POST /api/v1/logistica/admin/relogio`.
+2. A logística calcula a nova base **sem salto** (`base_virtual` = hora do módulo naquele instante), grava na sua tabela `relogio` e publica `relogio_ajustado`.
+3. O `transportadoras-service` consome e grava na sua própria tabela `relogio`. Esse consumidor usa um grupo de consumidores **por cópia**, para que `app1` e `app2` recebam o ajuste.
+4. Cada cópia lê o relógio do seu banco, com cache de poucos segundos. Um ajuste com `versao` menor ou igual à atual é ignorado.
+
+Valor sugerido para a apresentação: fator 360, para a viagem de 3 dias durar cerca de 12 minutos e o caminhão andar 24 vezes.
+
+O relógio vale só para o módulo de logística. Os outros grupos continuam na hora real, e essa diferença é explicada na apresentação.
+
+## 8. Notificações e documentos
+
+### 8.1 Notificações (D22)
+
+| Momento | Comprador | Fornecedor |
+|---|:---:|:---:|
+| Cotações disponíveis | ✔ | |
+| Nenhuma cotação na rodada (`SEM_COTACAO`) | ✔ | ✔ |
+| Frete escolhido automaticamente | ✔ | ✔ |
+| Transportadora trocada (viagem recusada) | ✔ | ✔ |
+| Motorista escalado e coleta agendada | ✔ | ✔ |
+| Coleta realizada | ✔ | ✔ |
+| Previsão atualizada (atraso) | ✔ | |
+| Entrega realizada | ✔ | ✔ |
+| Frete indisponível (pedido será cancelado) | ✔ | ✔ |
+
+As notificações ficam na tabela `notificacao` da logística, gravadas na mesma transação da mudança que as gerou. A tela mostra a contagem de não lidas no sino.
+
+### 8.2 Documentos (D21)
+
+Gerados sob demanda pela logística, em PDF, com os dados reais da entrega e a marca "documento demonstrativo, sem valor fiscal": CT-e, romaneio de carga, nota fiscal e comprovante de coleta. O comprovante de coleta só fica disponível depois da coleta.
+
+## 9. Modelo de dados
+
+Proposta para o grupo de Banco de Dados. "Kit" indica que a tabela já existe e será estendida.
+
+### 9.1 Schema `logistica`
 
 | Tabela | Situação | Colunas principais |
 |---|---|---|
-| `solicitacao_frete` | Kit, estender | `id`, `pedido_id` (único), `produto_id`, `comprador_id`, `fornecedor_id`, `tipo_carga`, `peso_kg`, `origem_cidade`, `origem_uf`, `origem_lat`, `origem_lon`, `destino_*` (iguais), `distancia_km`, `janela_expira_em`, `reaberturas`, `status`, `criado_em` |
-| `cotacao` | Kit, estender | `id`, `solicitacao_id`, `transportadora_id`, `preco`, `prazo_dias`, `data_entrega_prevista`, `valida_ate`, `origem_cotacao` (`AUTOMATICA`/`MANUAL`), `observacoes`, `selecionada`, `criado_em`. Única por (`solicitacao_id`, `transportadora_id`) |
-| `entrega` | Nova | `id`, `pedido_id` (único), `solicitacao_id`, `cotacao_id`, `transportadora_id`, `status`, `progresso`, `posicao_lat`, `posicao_lon`, `previsao_chegada`, `prazo_prometido`, `com_ocorrencia`, `entregue_em`, `atualizado_em` |
-| `evento_rastreio` | Nova | `id`, `entrega_id`, `tipo`, `descricao`, `lat`, `lon`, `progresso`, `ocorrido_em`, `event_id` (único) |
-| `desempenho_transportadora` | Nova | Cópia local dos indicadores usados na comparação: `transportadora_id`, `nome`, `entregas`, `pct_no_prazo`, `atraso_medio_h`, `atualizado_em` |
+| `solicitacao_frete` | Kit, estender | `id`, `pedido_id` (único), `produto_id`, `produto_nome`, `valor_carga`, `comprador_id`, `fornecedor_id`, `tipo_carga`, `peso_kg`, `origem_cidade`, `origem_uf`, `origem_lat`, `origem_lon`, `destino_*` (iguais), `distancia_km`, `rodada_ate`, `prazo_decisao_em`, `cotacao_escolhida_id`, `criterio`, `status`, `criado_em` |
+| `cotacao` | Kit, estender | `id`, `solicitacao_id`, `transportadora_id`, `preco`, `prazo_dias`, `data_entrega_prevista`, `valida_ate`, `origem_cotacao` (`SIMULADA`/`DIGITADA`), `observacoes`, `status` (`VALIDA`, `RECUSADA_TARDE`, `VIAGEM_RECUSADA`), `criado_em`. Única por (`solicitacao_id`, `transportadora_id`) |
+| `entrega` | Nova | `id`, `pedido_id`, `tentativa`, `solicitacao_id`, `cotacao_id`, `transportadora_id`, `status`, `progresso`, `posicao_lat`, `posicao_lon`, `previsao_chegada`, `prazo_prometido`, `motorista_nome`, `motorista_telefone`, `motorista_cnh_mascarada`, `veiculo_placa`, `veiculo_tipo`, `ultima_sequencia`, `com_ocorrencia`, `entregue_em`, `atualizado_em`. Única por (`pedido_id`, `tentativa`) |
+| `evento_rastreio` | Nova | `id`, `entrega_id`, `sequencia`, `tipo`, `descricao`, `lat`, `lon`, `progresso`, `ocorrido_em`, `event_id` (único) |
+| `ocorrencia` | Nova | `id`, `entrega_id`, `autor_id`, `descricao`, `criado_em` |
+| `notificacao` | Nova | `id`, `empresa_id`, `usuario_id` (opcional), `tipo`, `mensagem`, `referencia` (pedido ou entrega), `lida`, `criado_em` |
+| `desempenho_transportadora` | Nova | `transportadora_id`, `nome`, `entregas`, `pct_no_prazo`, `atraso_medio_h`, `atualizado_em` |
+| `relogio` | Nova | Linha única: `base_real`, `base_virtual`, `fator`, `versao` |
 | `outbox` | Nova (D13) | `id`, `topico`, `chave`, `envelope` (JSONB), `criado_em`, `publicado_em` |
 | `processed_events` | Kit | `event_id`, `processed_at` |
 | `idempotency_keys` | Kit | `key`, `response_payload`, `criado_em` |
 
-### 7.2 Schema `transportadoras`
+### 9.2 Schema `transportadoras`
 
 | Tabela | Situação | Colunas principais |
 |---|---|---|
-| `transportadora` | Kit, estender | `id`, `empresa_id`, `nome`, `ativa`, `tipos_carga` (array), `ufs_atendidas` (array), `capacidade_kg`, `prob_atraso`, `criado_em` |
-| `regra_cotacao` | Kit, estender | `id`, `transportadora_id`, `preco_minimo`, `tarifa_km`, `tarifa_ton`, `fator_tipo_carga` (JSONB), `km_por_dia`, `prazo_base_dias`. Hoje só tem `preco_base` e `prazo_dias` |
-| `veiculo` | Nova | `id`, `transportadora_id`, `placa`, `tipo`, `capacidade_kg` |
-| `solicitacao_recebida` | Nova | Cópia local de `solicitacao_frete_criada`, para cotar e para a tela de cargas disponíveis |
-| `viagem` | Nova | `id`, `pedido_id`, `entrega_id`, `transportadora_id`, `veiculo_id`, `rota` (JSONB com os pontos), `passo_atual`, `status`, `proximo_passo_em`, `lease_ate` (D14) |
-| `cidade` | Nova | `nome`, `uf`, `lat`, `lon` (D15). Pode ficar nos dois schemas ou num arquivo estático em cada serviço |
+| `transportadora` | Kit, estender | `id`, `empresa_id`, `nome`, `telefone_contato`, `ativa`, `tipos_carga` (array), `ufs_atendidas` (array), `prob_atraso`, `criado_em` |
+| `regra_cotacao` | Kit, estender | `id`, `transportadora_id`, `preco_minimo`, `tarifa_km`, `tarifa_ton`, `fator_tipo_carga` (JSONB), `km_por_dia`, `prazo_base_dias` |
+| `motorista` | Nova | `id`, `transportadora_id`, `nome`, `telefone`, `cnh_numero`, `cnh_categoria`, `cnh_validade`, `ativo`, `viagem_atual_id` |
+| `veiculo` | Nova | `id`, `transportadora_id`, `placa` (única), `tipo`, `capacidade_kg`, `tipos_carga` (array), `ativo`, `viagem_atual_id` |
+| `solicitacao_recebida` | Nova | Cópia local de `solicitacao_frete_criada`, para cotar e para a tela de cargas |
+| `viagem` | Nova | `id`, `pedido_id`, `entrega_id`, `transportadora_id`, `motorista_id`, `veiculo_id`, `rota` (JSONB), `coleta_em`, `chegada_prevista`, `atraso_sorteado_h`, `sequencia`, `status`, `proximo_passo_em` |
+| `cidade` | Nova | `nome`, `uf`, `lat`, `lon` (D15) |
+| `relogio` | Nova | Igual à da logística |
 | `outbox` | Nova (D13) | Igual à da logística |
 | `processed_events` | Kit | `event_id`, `processed_at` |
 
-### 7.3 Por que a logística guarda cópia dos indicadores
+### 9.3 Por que a logística guarda cópia dos indicadores
 
-A comparação precisa do desempenho de cada transportadora, que pertence ao `transportadoras-service`. O guia proíbe ler o schema alheio. Há duas saídas:
+A comparação precisa da pontualidade de cada transportadora, que pertence ao `transportadoras-service`, e o guia proíbe ler o schema alheio. A logística atualiza `desempenho_transportadora` a cada `ENTREGA_REALIZADA`, que já traz se a entrega foi no prazo. Não precisa de tópico novo.
 
-- **Cópia local** (proposta): a logística atualiza `desempenho_transportadora` a cada `rastreio_atualizado` do tipo `ENTREGA_REALIZADA`, que já traz se a entrega foi no prazo. Não precisa de tópico novo.
-- **Consulta HTTP** a `GET /api/v1/transportadoras/ranking` no momento da comparação. É leitura, não avança o fluxo, e o guia permite HTTP "quando estritamente necessário". É mais simples, mas cria dependência síncrona.
-
-## 8. API REST
+## 10. API REST
 
 Todas as rotas exigem JWT. Listagens têm `?page=1&size=10` (`size > 100` → 422). Erros em RFC 7807.
 
-### 8.1 `logistica-service`
+### 10.1 `logistica-service`
 
 | Método e rota | Perfis | Descrição |
 |---|---|---|
-| `GET /api/v1/logistica/solicitacoes` | comprador (as suas), admin | Lista solicitações, com filtro por status |
-| `GET /api/v1/logistica/solicitacoes/{id}` | comprador (a sua), admin | Detalhe, com as cotações |
-| `GET /api/v1/logistica/solicitacoes/{id}/comparacao` | comprador (a sua), admin | Cotações lado a lado, indicadores e selos (seção 5.1) |
-| `POST /api/v1/logistica/solicitacoes/{id}/selecionar-frete` | comprador (a sua), admin | Seleciona com o corpo vazio (regra do kit) ou com `cotacaoId` (D5). Exige `Idempotency-Key` |
-| `GET /api/v1/logistica/entregas` | comprador, fornecedor (os seus), admin | Lista entregas, com filtro por status |
-| `GET /api/v1/logistica/entregas/{id}` | idem | Resumo da entrega: status, progresso, previsão, transportadora, veículo, carga |
-| `GET /api/v1/logistica/entregas/{id}/rastreio` | idem | Rota, posição atual e linha do tempo. É o que a tela consulta no polling |
-| `GET /api/v1/logistica/pedidos/{pedidoId}/entrega` | idem | Busca a entrega pelo pedido, para a tela de pedidos linkar o rastreio |
-| `GET /api/v1/logistica/entregas/{id}/stream` | idem | SSE (extra, D10) |
-| `POST /api/v1/logistica/entregas/{id}/ocorrencias` | comprador | "Reportar ocorrência" do mockup (extra) |
+| `GET /api/v1/logistica/solicitacoes` | comprador, fornecedor (as suas), admin | Lista solicitações, com filtro por status |
+| `GET /api/v1/logistica/solicitacoes/{id}` | idem | Detalhe, com as cotações e o prazo de decisão |
+| `GET /api/v1/logistica/solicitacoes/{id}/comparacao` | comprador (a sua), admin | Comparação (seção 5.1) |
+| `POST /api/v1/logistica/solicitacoes/{id}/selecionar-frete` | comprador (a sua), admin | Corpo `{"cotacaoId": "..."}` ou `{"modo": "AUTOMATICO"}`. Exige `Idempotency-Key`. 409 se o frete já foi escolhido |
+| `GET /api/v1/logistica/entregas` | comprador, fornecedor (as suas), admin | Lista entregas |
+| `GET /api/v1/logistica/entregas/{id}` | idem | Resumo: status, progresso, previsão, transportadora, motorista, veículo, carga |
+| `GET /api/v1/logistica/entregas/{id}/rastreio` | idem | Rota, posição e linha do tempo. É o que a tela consulta a cada 5 s |
+| `GET /api/v1/logistica/pedidos/{pedidoId}/entrega` | idem | Entrega atual do pedido |
+| `POST /api/v1/logistica/entregas/{id}/ocorrencias` | comprador, fornecedor | "Reportar ocorrência" |
+| `GET /api/v1/logistica/entregas/{id}/documentos/{tipo}` | comprador, fornecedor (a sua), admin | PDF demonstrativo: `cte`, `romaneio`, `nota-fiscal`, `comprovante-coleta` |
+| `GET /api/v1/logistica/notificacoes` | todos (as suas) | Notificações, com filtro `lida` |
+| `PATCH /api/v1/logistica/notificacoes/{id}` | todos (as suas) | Marca como lida |
+| `GET /api/v1/logistica/relogio` | todos | Hora do módulo e fator atual |
+| `POST /api/v1/logistica/admin/relogio` | admin | Altera o fator ou avança o relógio |
 
-### 8.2 `transportadoras-service`
+### 10.2 `transportadoras-service`
 
 | Método e rota | Perfis | Descrição |
 |---|---|---|
 | `GET /api/v1/transportadoras` | todos | Lista transportadoras homologadas |
 | `GET /api/v1/transportadoras/{id}` | todos | Detalhe com perfil operacional e indicadores |
-| `PUT /api/v1/transportadoras/{id}/perfil-operacional` | transportadora (a própria), admin | Tipos de carga, UFs, capacidade e tabela de preços |
-| `GET /api/v1/transportadoras/ranking` | todos | Ranking de desempenho, com filtro por tipo de carga |
-| `GET /api/v1/transportadoras/solicitacoes` | transportadora | Cargas compatíveis abertas para cotação (tela do UX) |
-| `POST /api/v1/transportadoras/solicitacoes/{id}/cotacoes` | transportadora | Cotação manual. Publica `cotacao_recebida` |
+| `PUT /api/v1/transportadoras/{id}/perfil-operacional` | transportadora (a própria), admin | Tipos de carga, UFs e tabela de preços |
+| `GET /api/v1/transportadoras/ranking` | todos | Ranking, com filtro por tipo de carga |
+| `GET /api/v1/transportadoras/solicitacoes` | transportadora | Cargas compatíveis abertas para cotação |
+| `POST /api/v1/transportadoras/solicitacoes/{id}/cotacoes` | transportadora | Cotação digitada. 409 se o frete já foi escolhido; 422 se não houver motorista ou veículo livre e compatível |
+| `GET`, `POST`, `PUT`, `DELETE /api/v1/transportadoras/{id}/motoristas` | transportadora (a própria), admin | Cadastro de motoristas |
+| `GET`, `POST`, `PUT`, `DELETE /api/v1/transportadoras/{id}/veiculos` | transportadora (a própria), admin | Cadastro de veículos |
 | `POST /api/v1/transportadoras/viagens/{id}/eventos` | transportadora | Evento manual da viagem (extra) |
 
-Os dois serviços expõem ainda `/health`, `/health/ready` (testando banco e Redpanda de verdade), `/metrics` e `/docs`.
+Os dois serviços expõem ainda `/health`, `/health/ready` (testando banco e Redpanda), `/metrics` e `/docs`.
 
-## 9. Pontos de sistemas distribuídos
+## 11. Pontos de sistemas distribuídos
 
-São os pontos que a disciplina deve cobrar e que precisam aparecer no relatório técnico.
+Os pontos que a disciplina deve cobrar. Cada um precisa de um teste (plano, seção 4) e de um arquivo de explicação (D24).
 
-| Problema | Onde aparece | Proposta |
+| Problema | Onde aparece | Solução |
 |---|---|---|
-| Mensagem entregue mais de uma vez | Todos os consumidores | `processed_events` gravado **na mesma transação** da alteração (o kit guarda em memória) |
-| Ordem dos eventos | Cotações e rastreio | Chave de partição = `aggregateId` (`solicitacaoFreteId` para cotações, `pedidoId` para rastreio). O consumidor também ignora eventos de rastreio mais antigos que o último aplicado |
-| Gravar no banco e publicar no Kafka sem perder nenhum dos dois | Toda publicação | Outbox transacional: grava o evento numa tabela na mesma transação e uma rotina publica (D13) |
-| Duas instâncias e tarefas com tempo | Fim da janela de cotação e passos do simulador | Rotina em cada instância que pega o trabalho vencido com `SELECT ... FOR UPDATE SKIP LOCKED`, para não processar duas vezes (D14) |
-| Cotação que chega depois da seleção | Logística | Gravada como atrasada e ignorada na seleção. A seleção é feita com atualização condicional (`WHERE status IN ('ABERTA','COTADA')`) |
-| Seleção disparada duas vezes (rotina e comprador ao mesmo tempo) | Logística | A mesma atualização condicional garante uma única vencedora; a segunda tentativa vira 409 ou replay idempotente |
-| Tela ligada a outra instância | Rastreio | Tela lê do banco (seção 6.3) |
-| Falha permanente | Todos os consumidores | 3 tentativas (1 s, 2 s, 4 s) e envio para `logistica.dlt` ou `transportadoras.dlt` |
+| Mensagem entregue mais de uma vez | Todos os consumidores | `processed_events` gravado **na mesma transação** da alteração |
+| Ordem dos eventos | Cotações e rastreio | Chave de partição = `aggregateId`. O rastreio ainda ignora `sequencia` menor ou igual à última aplicada |
+| Gravar no banco e publicar no Kafka sem perder nenhum | Toda publicação | Outbox transacional (D13) |
+| Frete escolhido duas vezes | Comprador, botão "automático" e prazo de 12 h ao mesmo tempo, em duas cópias | Gravação condicional (seção 11.1) |
+| Cotação depois da escolha | Logística | A mesma gravação condicional: a cotação é guardada como `RECUSADA_TARDE` |
+| Mesmo caminhão em duas viagens | Escala do motorista e do veículo | `FOR UPDATE SKIP LOCKED` nas linhas de motorista e veículo (seção 6.2) |
+| Tarefas com hora marcada em duas cópias | Prazos e passos da viagem | `FOR UPDATE SKIP LOCKED` nas linhas vencidas (D14) |
+| Relógio igual em todas as cópias | Relógio do módulo | Estado no banco de cada serviço, propagado por evento com `versao` (seção 7) |
+| Tela ligada a outra cópia | Rastreio | A tela lê do banco (seção 6.4) |
+| Falha permanente | Todos os consumidores | 3 tentativas (1 s, 2 s, 4 s) e depois `logistica.dlt` ou `transportadoras.dlt` |
+
+### 11.1 Por que o frete não é escolhido duas vezes
+
+A escolha grava o novo status **só se ele ainda estiver em aberto**:
+
+```sql
+UPDATE logistica.solicitacao_frete
+   SET status = 'SELECIONADA', cotacao_escolhida_id = :cotacao, criterio = :criterio
+ WHERE id = :id
+   AND status = 'COTADA';
+```
+
+O PostgreSQL executa uma gravação por vez na mesma linha. A primeira cópia que chega muda o status e recebe "1 linha alterada". A segunda encontra `SELECIONADA`, recebe "0 linhas" e desiste: responde 409 ao comprador, ou não faz nada se for a rotina. Só quem recebeu "1 linha" grava o `frete_selecionado` na outbox, **na mesma transação**. Se o serviço cair antes do commit, nada foi gravado nem publicado; se cair depois, a outbox publica quando ele voltar.
+
+A troca de transportadora depois de um `VIAGEM_RECUSADA` usa a mesma ideia: só troca `WHERE cotacao_escolhida_id = :cotacao_recusada`. Se o mesmo `VIAGEM_RECUSADA` chegar duas vezes, a segunda gravação não encontra a cotação recusada e não troca de novo.

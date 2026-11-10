@@ -2,7 +2,7 @@
 
 Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuído, trabalho da disciplina de Sistemas Distribuídos (2026). O grupo cuida do que acontece depois que o pedido é criado: cotar o frete com as transportadoras, comparar as propostas, escolher a vencedora e acompanhar a entrega num mapa até a chegada.
 
-> **Situação:** fase de planejamento. Ainda não há código. Este repositório reúne o contexto, a arquitetura proposta e as decisões que o grupo precisa tomar. **Para a reunião, comece pela [Pauta de decisões](docs/06-pauta-de-decisoes.md).**
+> **Situação:** decisões tomadas, ainda sem código. Próximo passo: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos e definir os responsáveis. **Comece pela [Pauta de decisões](docs/06-pauta-de-decisoes.md).**
 
 ## Integrantes
 
@@ -18,8 +18,8 @@ Conforme o guia do kit de infraestrutura (confirmar):
 
 | Serviço | Porta | Schema | Papel |
 |---|:---:|---|---|
-| `logistica-service` | 8108 | `logistica` | Abre a solicitação de frete quando um pedido é criado, recebe as cotações, compara, seleciona o frete e mantém a entrega e o rastreio |
-| `transportadoras-service` | 8109 | `transportadoras` | Cadastro das transportadoras homologadas, cálculo das cotações (simuladas ou enviadas pela transportadora), simulação da viagem e indicadores de desempenho |
+| `logistica-service` | 8108 | `logistica` | Abre a solicitação de frete, recebe as cotações, mostra a comparação, registra a escolha do comprador (ou aplica a regra automática), mantém a entrega e o rastreio, notifica e controla o relógio do módulo |
+| `transportadoras-service` | 8109 | `transportadoras` | Transportadoras, motoristas e veículos; cotações simuladas e digitadas; escala do motorista; simulação da viagem e indicadores de desempenho |
 
 Porta, schema, usuário de banco e tópicos já foram definidos pelo [kit de infraestrutura](https://github.com/Printf-PedroCardoso/portal-b2b-kit-infra). O trabalho tem três frentes:
 
@@ -39,22 +39,23 @@ flowchart LR
     LOG -->|frete_selecionado| PED
     LOG -->|frete_selecionado| TRP
     TRP -->|rastreio_atualizado *| LOG
-    LOG -->|entrega_concluida *| PED
-    FE[Tela de rastreio<br/>e comparação] -->|/api/v1/logistica| LOG
+    LOG -->|entrega_concluida *<br/>frete_indisponivel *| PED
+    FE[Telas sobre o<br/>mockup do UX] -->|/api/v1/logistica| LOG
 ```
 
-`*` tópicos novos, que precisam ser propostos ao grupo de Infraestrutura. Todas as setas entre serviços passam pelo Redpanda. O detalhe está em [Arquitetura proposta](docs/02-arquitetura-proposta.md).
+`*` tópicos novos, que precisam ser propostos ao grupo de Infraestrutura. Todas as setas entre serviços passam pelo Redpanda. O detalhe está em [Arquitetura](docs/02-arquitetura-proposta.md).
 
 ## Documentação
 
 | Documento | Conteúdo |
 |---|---|
 | [01. Contexto e escopo](docs/01-contexto-e-escopo.md) | O Portal B2B, o que o kit já define para o grupo, o que o professor acrescentou e o que fica fora |
-| [02. Arquitetura proposta](docs/02-arquitetura-proposta.md) | Responsabilidades, fluxo completo, estados, comparação, rastreio visual, modelo de dados e API |
-| [03. Eventos e integrações](docs/03-eventos-e-integracoes.md) | Payloads propostos, tópicos novos e o que precisamos pedir a cada grupo |
+| [02. Arquitetura](docs/02-arquitetura-proposta.md) | Responsabilidades, fluxo, estados, escolha do frete, rastreio, relógio, notificações, modelo de dados, API e pontos de sistemas distribuídos |
+| [03. Eventos e integrações](docs/03-eventos-e-integracoes.md) | Payloads, tópicos novos e o que precisamos pedir a cada grupo |
 | [04. Análise do kit](docs/04-analise-do-kit.md) | Problemas encontrados nos boilerplates de logística e transportadoras |
-| [05. Plano de trabalho](docs/05-plano-de-trabalho.md) | Fases, entregáveis, divisão de frentes e roteiro da demonstração |
-| [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões em aberto, com opções e recomendação, e perguntas para o professor |
+| [05. Plano de trabalho](docs/05-plano-de-trabalho.md) | Etapas, testes e roteiro da demonstração |
+| [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões D1 a D24 e perguntas para o professor |
+| [Proposta ao grupo de Pedidos](docs/contratos/proposta-grupo-pedidos.md) | Documento pronto para enviar: campos do `pedido_criado` e eventos que eles precisam consumir |
 
 ## Repositórios de referência
 
@@ -98,7 +99,9 @@ As instruções para rodar os nossos serviços entram aqui quando o primeiro est
 │   ├── 03-eventos-e-integracoes.md
 │   ├── 04-analise-do-kit.md
 │   ├── 05-plano-de-trabalho.md
-│   └── 06-pauta-de-decisoes.md
+│   ├── 06-pauta-de-decisoes.md
+│   └── contratos/
+│       └── proposta-grupo-pedidos.md
 └── services/
     ├── logistica-service/        # ainda sem código
     └── transportadoras-service/  # ainda sem código
