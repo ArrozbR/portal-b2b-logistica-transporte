@@ -18,7 +18,7 @@ from comum.db import buscar_todos, buscar_um
 from comum.eventos import validar_payload
 from comum.geo import somar_dias_uteis
 from comum.outbox import gravar_evento
-from comum.relogio import Relogio
+from comum.relogio import EstadoRelogio, Relogio, gravar_estado
 
 from . import SCHEMA, SERVICO
 from .cotacao import PerfilTransportadora, RegraCotacao, atende, calcular
@@ -74,6 +74,20 @@ class Transportadoras:
         log.info("Cotações simuladas emitidas", extra={"dados": {
             "solicitacaoFreteId": sid, "tipoCarga": solicitacao["tipoCarga"], "quantidade": emitidas}})
         return emitidas
+
+    async def sincronizar_relogio(self, conn: AsyncConnection, envelope: dict) -> bool:
+        """relogio_ajustado: copia o relógio do módulo da logística (D18).
+
+        As duas cópias deste serviço leem a mesma tabela `transportadoras.relogio`,
+        então basta uma delas processar o evento. Um ajuste mais antigo que o
+        gravado é ignorado (comparação de versão).
+        """
+        estado = EstadoRelogio.do_evento(validar_payload("relogio_ajustado", envelope["payload"]))
+        gravou = await gravar_estado(conn, SCHEMA, estado)
+        self.relogio.invalidar()
+        log.info("Relógio do módulo sincronizado" if gravou else "Ajuste de relógio antigo ignorado",
+                 extra={"dados": {"versao": estado.versao, "fator": estado.fator}})
+        return gravou
 
     async def _transportadoras_simuladas(self, conn: AsyncConnection) -> list[tuple[PerfilTransportadora, RegraCotacao]]:
         linhas = await buscar_todos(conn, """

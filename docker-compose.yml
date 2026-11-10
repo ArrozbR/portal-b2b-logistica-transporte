@@ -152,5 +152,21 @@ services:
     ports:
       - "8119:8109"
 
+  # Faz o papel do grupo de Pedidos na outra ponta (D23): registra as mudanças
+  # de status do pedido e cancela o pedido quando chega frete_indisponivel.
+  # Desligue quando o pedidos-service real estiver integrado.
+  pedidos-falso:
+    image: grupo5/logistica-service:dev
+    pull_policy: never
+    command: ["python", "-m", "comum.ferramentas.pedidos_falso"]
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+    depends_on:
+      topicos:
+        condition: service_completed_successfully
+      logistica-1:
+        condition: service_started
+
 volumes:
   dados-postgres:

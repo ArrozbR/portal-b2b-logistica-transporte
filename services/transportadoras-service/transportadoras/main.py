@@ -2,7 +2,8 @@
 
 Sobe a API e, no mesmo processo, duas rotinas em segundo plano:
 
-- consumidor: lê solicitacao_frete_criada e emite as cotações simuladas;
+- consumidor: lê solicitacao_frete_criada (emite as cotações simuladas) e
+  relogio_ajustado (sincroniza o relógio do módulo);
 - outbox:     publica no Kafka os eventos gravados no banco.
 
 Rodar: uvicorn transportadoras.main:app --host 0.0.0.0 --port 8109
@@ -36,7 +37,10 @@ kafka: dict = {"produtor": None}
 
 consumidor = ConsumidorIdempotente(
     db=db, schema=SCHEMA, servico=SERVICO, grupo=SERVICO, topico_dlt=TOPICO_DLT,
-    tratadores={"solicitacao_frete_criada": transportadoras.cotar_automaticamente},
+    tratadores={
+        "solicitacao_frete_criada": transportadoras.cotar_automaticamente,
+        "relogio_ajustado": transportadoras.sincronizar_relogio,
+    },
 )
 
 

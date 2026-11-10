@@ -2,7 +2,7 @@
 
 Sobe a API e, no mesmo processo, três rotinas em segundo plano:
 
-- consumidor: lê pedido_criado e cotacao_recebida do Kafka;
+- consumidor: lê pedido_criado, cotacao_recebida e pedido_atualizado do Kafka;
 - outbox:     publica no Kafka os eventos gravados no banco;
 - prazos:     a cada segundo, fecha rodadas e aplica a escolha automática.
 
@@ -43,6 +43,7 @@ consumidor = ConsumidorIdempotente(
     tratadores={
         "pedido_criado": logistica.abrir_solicitacao,
         "cotacao_recebida": logistica.registrar_cotacao,
+        "pedido_atualizado": logistica.cancelar_pedido,
     },
 )
 
@@ -83,4 +84,4 @@ app = FastAPI(
 registrar_tratadores(app)
 instalar_middleware(app, SERVICO)
 app.include_router(rotas_de_saude(SERVICO, {"banco": db.verificar, "kafka": kafka_pronto}))
-app.include_router(criar_rotas(db))
+app.include_router(criar_rotas(db, logistica))
