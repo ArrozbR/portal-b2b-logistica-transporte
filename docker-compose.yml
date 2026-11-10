@@ -27,6 +27,10 @@ x-ambiente: &ambiente
   DB_NAME: portal_b2b
   DB_POOL_MAX: "5"
   KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+  # Token no formato do grupo de Autenticação (RS256, chaves no JWKS; D25).
+  # Para rodar com o kit atual, use JWT_ALGORITHM=HS256 e a JWT_SECRET_KEY do kit.
+  JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+  AUTH_JWKS_URL: ${AUTH_JWKS_URL:-http://usuarios-falso:8101/.well-known/jwks.json}
   JWT_SECRET_KEY: ${JWT_SECRET_KEY:-somente-desenvolvimento-local-troque-esta-chave}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
@@ -169,13 +173,15 @@ services:
       logistica-1:
         condition: service_started
 
-  # SOMENTE DESENVOLVIMENTO: faz o papel do usuarios-service no login da tela.
+  # SOMENTE DESENVOLVIMENTO: faz o papel do serviço de Autenticação no login da
+  # tela e publica o JWKS que os serviços usam para validar os tokens.
   usuarios-falso:
     image: grupo5/logistica-service:dev
     pull_policy: never
     command: ["uvicorn", "comum.ferramentas.usuarios_falso:app", "--host", "0.0.0.0", "--port", "8101"]
     restart: unless-stopped
     environment:
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-somente-desenvolvimento-local-troque-esta-chave}
     depends_on:
       logistica-1:

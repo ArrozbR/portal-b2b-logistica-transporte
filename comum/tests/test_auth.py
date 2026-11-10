@@ -1,0 +1,109 @@
+"""Token do grupo de Autenticação (RS256 + JWKS) e do kit (HS256), D25."""
+
+import time
+
+import jwt
+import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from comum import auth
+from comum.erros import Problema
+
+CHAVE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+OUTRA_CHAVE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+KID = "chave-de-teste"
+SEGREDO = "segredo-de-teste-com-mais-de-32-caracteres"
+
+
+class JwksFalso:
+    """Faz o papel do /.well-known/jwks.json: só conhece o KID."""
+
+    def get_signing_key(self, kid):
+        if kid != KID:
+            raise jwt.PyJWKClientError(f"kid desconhecido: {kid}")
+        return type("Chave", (), {"key": CHAVE.public_key()})()
+
+
+@pytest.fixture(autouse=True)
+def ambiente(monkeypatch):
+    monkeypatch.setenv("JWT_ALGORITHM", "RS256")
+    monkeypatch.setenv("JWT_SECRET_KEY", SEGREDO)
+    monkeypatch.setattr(auth, "_cliente_jwks", lambda url: JwksFalso())
+
+
+def token_da_autenticacao(chave=CHAVE, kid=KID, segundos=3600, **claims):
+    agora = int(time.time())
+    base = {"sub": "usr-7", "tenant_id": "emp-34", "active_scope": "BUYER", "roles": [], "permissions": [],
+            "iat": agora, "exp": agora + segundos}
+    return jwt.encode(base | claims, chave, algorithm="RS256", headers={"kid": kid} if kid else None)
+
+
+def codigo(token: str) -> tuple[int, str]:
+    with pytest.raises(Problema) as erro:
+        auth.decodificar(token)
+    return erro.value.status, erro.value.codigo
+
+
+@pytest.mark.parametrize("escopo, perfil", [("BUYER", "comprador"), ("SUPPLIER", "fornecedor"),
+                                            ("CARRIER", "transportadora")])
+def test_escopo_da_autenticacao_vira_perfil_do_modulo(escopo, perfil):
+    usuario = auth.decodificar(token_da_autenticacao(active_scope=escopo))
+    assert usuario == auth.Usuario(id="usr-7", empresa_id="emp-34", perfil=perfil)
+
+
+def test_permissao_logistica_admin_vira_admin():
+    usuario = auth.decodificar(token_da_autenticacao(active_scope="TENANT_ADMIN", permissions=["logistica:admin"]))
+    assert usuario.admin
+
+
+def test_tenant_admin_sem_a_permissao_nao_usa_o_modulo():
+    assert codigo(token_da_autenticacao(active_scope="TENANT_ADMIN")) == (403, "PERFIL_NAO_PERMITIDO")
+
+
+def test_escopo_desconhecido_ou_em_minusculas():
+    assert codigo(token_da_autenticacao(active_scope="GERENTE")) == (403, "PERFIL_AUSENTE")
+    assert codigo(token_da_autenticacao(active_scope="buyer")) == (403, "PERFIL_AUSENTE")
+
+
+def test_token_sem_empresa():
+    assert codigo(token_da_autenticacao(tenant_id="")) == (401, "TOKEN_INVALIDO")
+
+
+@pytest.mark.parametrize("caso, token", [
+    ("assinado com outra chave", lambda: token_da_autenticacao(chave=OUTRA_CHAVE)),
+    ("kid desconhecido", lambda: token_da_autenticacao(kid="outra")),
+    ("sem kid", lambda: token_da_autenticacao(kid=None)),
+    ("HS256 no lugar de RS256", lambda: jwt.encode({"sub": "u", "tenant_id": "e", "active_scope": "BUYER",
+                                                     "exp": int(time.time()) + 60}, SEGREDO, algorithm="HS256",
+                                                    headers={"kid": KID})),
+    ("malformado", lambda: "nao-e-um-token"),
+])
+def test_token_invalido(caso, token):
+    assert codigo(token()) == (401, "TOKEN_INVALIDO"), caso
+
+
+def test_token_expirado():
+    assert codigo(token_da_autenticacao(segundos=-10)) == (401, "TOKEN_EXPIRADO")
+
+
+def test_jwks_fora_do_ar(monkeypatch):
+    class JwksForaDoAr:
+        def get_signing_key(self, kid):
+            raise jwt.PyJWKClientConnectionError("conexão recusada")
+    monkeypatch.setattr(auth, "_cliente_jwks", lambda url: JwksForaDoAr())
+    assert codigo(token_da_autenticacao()) == (503, "AUTENTICACAO_INDISPONIVEL")
+
+
+def test_formato_do_kit_com_hs256(monkeypatch):
+    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    token = jwt.encode({"sub": "usr-1", "empresaId": "emp-1", "perfil": "fornecedor",
+                        "exp": int(time.time()) + 60}, SEGREDO, algorithm="HS256")
+    assert auth.decodificar(token) == auth.Usuario(id="usr-1", empresa_id="emp-1", perfil="fornecedor")
+    # com HS256 configurado, um token RS256 é recusado
+    assert codigo(token_da_autenticacao()) == (401, "TOKEN_INVALIDO")
+
+
+def test_algoritmo_desconhecido_na_configuracao(monkeypatch):
+    monkeypatch.setenv("JWT_ALGORITHM", "none")
+    with pytest.raises(RuntimeError):
+        auth.decodificar(token_da_autenticacao())
