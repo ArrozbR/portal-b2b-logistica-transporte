@@ -13,7 +13,7 @@ A ordem coloca primeiro o que **não pode faltar**: o fluxo do frete integrado (
 | **2. Escolha e prazos** ✅ (falta a integração real) | Relógio do módulo (D18); escolha pelo comprador e botão "automático" (D5); rodada de 10 s, prazo de 12 h, `SEM_COTACAO`, `frete_indisponivel` (D4); cancelamento; notificações (D22); "Pedidos falso" (D23); integração real com o grupo de Pedidos | O pedido real do grupo de Pedidos muda de status pelos nossos eventos | **concluída em 09/11** com o "Pedidos falso" ([explicação](explicacoes/02-escolha-relogio-notificacoes.md)). A integração real depende do acordo com o grupo de Pedidos (etapa 0) |
 | **3. Rastreio visual** ✅ | Cadastro de motoristas e veículos (API), escala sorteada e recusa de viagem (D19, D20); simulador de viagem; `rastreio_atualizado` e `entrega_concluida`; portal com lista de entregas e tela de rastreamento com mapa | Viagem Sorriso → Santos roda inteira na tela com o relógio acelerado e o pedido termina `ENTREGUE` | **concluída em 10/11** ([explicação](explicacoes/03-rastreio-visual.md)) |
 | **4. Comparação e restante do mockup** ✅ | Tela de comparação com selos e gráfico; ranking; cotação digitada e tela "Solicitações de frete"; telas de cadastro; documentos demonstrativos (D21); ocorrências | Todas as telas do mockup funcionando com dados reais | **concluída em 10/11** ([explicação](explicacoes/04-comparacao-cotacao-documentos.md)) |
-| **5. Prova e ensaio** | Os 3 testes distribuídos (seção 4.1); demais testes; relatório técnico com ADRs; slides; ensaio da demonstração | Os 3 testes passam sobre Redpanda e PostgreSQL reais; demonstração ensaiada | até a apresentação |
+| **5. Prova e ensaio** ✅ (faltam slides e ensaio) | Os 3 testes distribuídos (seção 4.1); demais testes; teste de carga; relatório técnico com ADRs; slides; ensaio da demonstração | Os 3 testes passam sobre Redpanda e PostgreSQL reais; demonstração ensaiada | testes e relatório **concluídos em 10/11** ([explicação](explicacoes/05-testes-distribuidos-e-carga.md), [relatório](07-relatorio-tecnico.md)). Slides e ensaio ficam para perto da apresentação |
 
 Os testes de cada parte são escritos junto com ela, não só na etapa 5. A etapa 5 junta tudo e prova os cenários distribuídos.
 
@@ -45,31 +45,33 @@ Em aberto (D17). Como o código é gerado por IA, o papel de cada membro é **re
 
 ### 4.1 Os 3 testes distribuídos
 
-Rodam sobre o **Redpanda e o PostgreSQL de verdade** (Docker), com as duas cópias de cada serviço no ar, seguindo o modelo de testes do repositório `ProcessoeArtefatoAED`: os serviços sobem como processos e o teste confere o resultado pelo banco e pelos tópicos.
+Rodam sobre o **Redpanda e o PostgreSQL de verdade** (Docker), com as duas cópias de cada serviço no ar, seguindo o modelo de testes do repositório `ProcessoeArtefatoAED`: os serviços ficam no ar e o teste confere o resultado pelo banco e pelos tópicos.
 
-| Teste | Como | Passa se |
-|---|---|---|
-| **Mensagem duplicada** | Publicar o mesmo `pedido_criado` (mesmo `eventId`) 5 vezes | Existe exatamente **1** solicitação no banco e **1** `solicitacao_frete_criada` no tópico |
-| **Duas coisas ao mesmo tempo** | Disparar no mesmo instante a escolha do comprador, o botão "automático" e o vencimento do prazo, com `app1` e `app2` no ar | O tópico tem exatamente **1** `frete_selecionado` e a solicitação tem **1** cotação escolhida |
-| **Uma cópia caindo** | Derrubar `app1-logistica` e `app1-transportadoras` no meio da viagem | O caminhão continua andando pela `app2`, a entrega é concluída, e a sequência de rastreio não tem buraco nem repetição |
+Implementados em `testes_integracao/` (`.venv/Scripts/python -m pytest testes_integracao -v`, com o ambiente no ar). Os três passam, junto com o fluxo completo, em duas rodadas seguidas (cerca de 2 min 40 s cada).
+
+| Teste | Como | Passa se | Situação |
+|---|---|---|---|
+| **Mensagem duplicada** | Publicar o mesmo `pedido_criado` (mesmo `eventId`) 5 vezes | Existe exatamente **1** solicitação no banco e **1** `solicitacao_frete_criada` no tópico | ✅ |
+| **Duas coisas ao mesmo tempo** | Disparar no mesmo instante a escolha do comprador, o botão "automático" e o vencimento do prazo, com `app1` e `app2` no ar | O tópico tem exatamente **1** `frete_selecionado` e a solicitação tem **1** cotação escolhida | ✅ |
+| **Uma cópia caindo** | Derrubar `app1-logistica` e `app1-transportadoras` no meio da viagem | O caminhão continua andando pela `app2`, a entrega é concluída, e a sequência de rastreio não tem buraco nem repetição | ✅ |
 
 ### 4.2 Demais testes
 
-| Teste | O que prova |
-|---|---|
-| Regra automática | Menor preço vence; empate vai para o menor prazo, depois pontualidade, depois `transportadoraId` |
-| Prazos | Rodada de 10 s sem cotação → `SEM_COTACAO`; 12 h com cotação → escolha automática; 12 h sem cotação → `frete_indisponivel` |
-| Relógio | Acelerar o relógio acelera a viagem, os prazos e o cálculo de atraso; a transportadora recebe o ajuste |
-| Cotação tardia | Cotação depois da escolha é recusada (409 ou `RECUSADA_TARDE`) |
-| Escala | Duas viagens ao mesmo tempo nunca pegam o mesmo caminhão; sem caminhão livre → `VIAGEM_RECUSADA` → próxima cotação |
-| Compatibilidade | Carga `REFRIGERADO` só recebe cotação de quem tem veículo refrigerado livre |
-| Rastreio fora de ordem | Evento com `sequencia` antiga não move o caminhão para trás |
-| RBAC | Comprador cotando → 403; transportadora cotando em nome de outra → 403; não administrador mexendo no relógio → 403 |
-| LGPD | Telefone e CNH do motorista não aparecem para quem não é comprador ou fornecedor da entrega |
-| Paginação | `size=101` → 422 |
-| Falha permanente | Payload inválido vai para a DLT depois de 3 tentativas |
-| Contrato | O script de pedido falso e o consumidor usam o mesmo JSON Schema |
-| Carga | p95 da leitura do rastreio ≤ 500 ms com muitas telas consultando a cada 5 s |
+| Teste | O que prova | Onde foi verificado |
+|---|---|---|
+| Regra automática | Menor preço vence; empate vai para o menor prazo, depois pontualidade, depois `transportadoraId` | Unitário (`test_regras.py`) |
+| Prazos | Rodada de 10 s sem cotação → `SEM_COTACAO`; 12 h com cotação → escolha automática; 12 h sem cotação → `frete_indisponivel` | Ambiente, etapas 1 e 2; integração 2 (prazo vencendo) |
+| Relógio | Acelerar o relógio acelera a viagem, os prazos e o cálculo de atraso; a transportadora recebe o ajuste | Unitário (`test_relogio.py`, `test_simulacao.py`); integração (todas as viagens) |
+| Cotação tardia | Cotação depois da escolha é recusada (409 ou `RECUSADA_TARDE`) | Ambiente, etapa 4 (cotação digitada depois da escolha) |
+| Escala | Duas viagens ao mesmo tempo nunca pegam o mesmo caminhão; sem caminhão livre → `VIAGEM_RECUSADA` → próxima cotação | Ambiente, etapa 3 |
+| Compatibilidade | Carga `REFRIGERADO` só recebe cotação de quem tem veículo refrigerado livre | Unitário (`test_cotacao.py`); ambiente, etapa 1 |
+| Rastreio fora de ordem | Evento com `sequencia` antiga não move o caminhão para trás | Integração 3 (sequência 1..N no banco, sem buraco nem repetição); o descarte de sequência antiga só no código |
+| RBAC | Comprador cotando → 403; transportadora cotando em nome de outra → 403; não administrador mexendo no relógio → 403 | Ambiente, etapas 1 a 4 |
+| LGPD | Telefone e CNH do motorista não aparecem para quem não é comprador ou fornecedor da entrega | Unitário (máscara da CNH); ambiente, etapa 3 |
+| Paginação | `size=101` → 422 | Ambiente, etapa 1 |
+| Falha permanente | Payload inválido vai **direto** para a DLT (não adianta tentar de novo); falha temporária vai depois de 3 tentativas | Ambiente, etapa 1 (cidade inexistente); as 3 tentativas só no código |
+| Contrato | O script de pedido falso e o consumidor usam o mesmo JSON Schema | Unitário (`test_eventos.py`) |
+| Carga | p95 da leitura do rastreio ≤ 500 ms com muitas telas consultando a cada 5 s | k6 (`testes_carga/leitura.js`): p95 de 470 a 477 ms com 200 usuários, 0% de erros |
 
 ## 5. Roteiro da demonstração
 

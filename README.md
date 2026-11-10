@@ -2,7 +2,7 @@
 
 Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuído, trabalho da disciplina de Sistemas Distribuídos (2026). O grupo cuida do que acontece depois que o pedido é criado: cotar o frete com as transportadoras, comparar as propostas, escolher a vencedora e acompanhar a entrega num mapa até a chegada.
 
-> **Situação:** etapas 1 a 4 concluídas e validadas no Docker. O pedido entra, as transportadoras cotam (sozinhas ou digitando), o comprador compara e escolhe pela tela, o motorista é escalado e o caminhão anda no mapa até a entrega, com ranking, documentos e ocorrências, em <http://localhost:8088>. Próxima: etapa 5 (testes dos cenários distribuídos, relatório técnico e ensaio). Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
+> **Situação:** etapas 1 a 5 concluídas e validadas no Docker. O pedido entra, as transportadoras cotam (sozinhas ou digitando), o comprador compara e escolhe pela tela, o motorista é escalado e o caminhão anda no mapa até a entrega, com ranking, documentos e ocorrências, em <http://localhost:8088>. Os 3 cenários distribuídos (mensagem duplicada, escolhas simultâneas e cópia caindo) têm teste automático, o teste de carga passa no critério do kit e o [relatório técnico](docs/07-relatorio-tecnico.md) reúne as decisões em ADRs. Faltam os slides e o ensaio da apresentação. Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
 
 ## Integrantes
 
@@ -55,6 +55,7 @@ flowchart LR
 | [04. Análise do kit](docs/04-analise-do-kit.md) | Problemas encontrados nos boilerplates de logística e transportadoras |
 | [05. Plano de trabalho](docs/05-plano-de-trabalho.md) | Etapas, testes e roteiro da demonstração |
 | [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões D1 a D24 e perguntas para o professor |
+| [07. Relatório técnico](docs/07-relatorio-tecnico.md) | Arquitetura, testes e resultados, limitações e as decisões em ADRs |
 | [Proposta ao grupo de Pedidos](docs/contratos/proposta-grupo-pedidos.md) | Documento pronto para enviar: campos do `pedido_criado` e eventos que eles precisam consumir |
 
 ## Repositórios de referência
@@ -115,6 +116,13 @@ python -m venv .venv
 .venv/Scripts/python -m pytest
 ```
 
+Testes de integração e de carga, com o ambiente no ar (eles aceleram o relógio e derrubam contêineres; não rode durante uma demonstração):
+
+```bash
+.venv/Scripts/python -m pytest testes_integracao -v      # os 3 cenários distribuídos e o fluxo completo (~3 min)
+docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js
+```
+
 O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](docs/explicacoes/).
 
 ## Estrutura do repositório
@@ -140,8 +148,10 @@ O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](do
 │       └── tests/
 ├── frontend/                     # telas (HTML, CSS, JavaScript e mapa Leaflet)
 ├── infra/                        # Postgres, tópicos e portal (Nginx)
+├── testes_integracao/            # cenários distribuídos contra o ambiente no ar
+├── testes_carga/                 # cenário do k6
 └── docs/
-    ├── 01-contexto-e-escopo.md ... 06-pauta-de-decisoes.md
+    ├── 01-contexto-e-escopo.md ... 07-relatorio-tecnico.md
     ├── contratos/                # propostas de contrato com outros grupos
     └── explicacoes/              # explicação de cada parte implementada
 ```

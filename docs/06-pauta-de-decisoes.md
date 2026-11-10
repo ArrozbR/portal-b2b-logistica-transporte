@@ -1,6 +1,6 @@
 # 06. Pauta de decisões
 
-Registro das decisões do grupo. A primeira versão desta pauta trazia só opções e recomendações; as decisões abaixo foram tomadas numa sessão de perguntas e respostas (o "grill") e, onde o grupo não tinha como decidir, pela melhor recomendação técnica, aceita pelo grupo. Quando uma decisão for confirmada com o professor ou com outro grupo, a situação muda para **Aceita** e ela vira ADR no relatório técnico.
+Registro das decisões do grupo. A primeira versão desta pauta trazia só opções e recomendações; as decisões abaixo foram tomadas numa sessão de perguntas e respostas (o "grill") e, onde o grupo não tinha como decidir, pela melhor recomendação técnica, aceita pelo grupo. Quando uma decisão for confirmada com o professor ou com outro grupo, a situação muda para **Aceita** e o ADR correspondente no [relatório técnico](07-relatorio-tecnico.md) (seção 12) é atualizado.
 
 Situações:
 

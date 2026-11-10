@@ -13,7 +13,7 @@ Grupo 5 (Logística e Transporte) do **Portal B2B Distribuído**, trabalho da di
 
 Além do que o kit define (cotação e seleção de frete), o professor pediu **rastreio visual da entrega** e **comparação entre transportadoras**.
 
-**Situação:** etapas 1 a 4 concluídas (fluxo do frete, escolha pelo comprador, relógio, notificações, cancelamento, motoristas e veículos, viagem simulada, comparação, cotação digitada, ranking, documentos, ocorrências e todas as telas do mockup). Próxima: etapa 5 (testes distribuídos automatizados, relatório técnico, ensaio). As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
+**Situação:** etapas 1 a 5 concluídas (fluxo do frete, escolha pelo comprador, relógio, notificações, cancelamento, motoristas e veículos, viagem simulada, comparação, cotação digitada, ranking, documentos, ocorrências, todas as telas do mockup, testes de integração dos 3 cenários distribuídos, teste de carga e relatório técnico). Faltam slides e ensaio da apresentação, e as pendências com outros grupos (relatório, seção 15). As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
 
 O código é gerado por IA, com conhecimento do professor. Cada parte entregue precisa vir com um arquivo em `docs/explicacoes/` (D24): o que a parte faz, em linguagem simples; por que foi feita assim; e as perguntas que o professor pode fazer, com as respostas. O grupo não tem experiência com as ferramentas, então explique sem jargão.
 
@@ -36,6 +36,7 @@ Regras de negócio que fogem do kit: o comprador escolhe o frete em até 12 h (a
 | `docs/04-analise-do-kit.md` | Problemas do kit (K1 a K11 do grupo de Produtos; L1 a L15 nossos) |
 | `docs/05-plano-de-trabalho.md` | Etapas 0 a 5, testes e roteiro da demonstração |
 | `docs/06-pauta-de-decisoes.md` | Decisões D1 a D24 e perguntas ao professor |
+| `docs/07-relatorio-tecnico.md` | Relatório técnico: arquitetura, testes e resultados, limitações, ADR-001 a ADR-025 |
 | `docs/contratos/` | Propostas de contrato com outros grupos e, quando aprovados, JSON Schemas |
 | `docs/explicacoes/` | Explicação de cada parte implementada, para o grupo estudar (uma por etapa) |
 
@@ -44,7 +45,7 @@ Convenções:
 - Tudo em português do Brasil, frases curtas, tabelas quando houver comparação.
 - O que ainda não foi decidido aparece como **proposta**. Ao mudar uma decisão, atualize a pauta e os documentos que apontam para ela (`D#`).
 - Mantenha os identificadores estáveis (`D#`, `P#`, `K#`, `L#`). Não renumere; acrescente no fim.
-- Quando uma decisão for aceita, ela vira ADR no relatório técnico (ainda a criar, no modelo do grupo de Fornecimento e Produtos).
+- Quando uma decisão for aceita ou mudar, atualize o ADR correspondente no relatório técnico (`docs/07-relatorio-tecnico.md`, seção 12). ADRs novos entram no fim (ADR-026 em diante).
 - Contratos de eventos aprovados ganham JSON Schema e exemplo em `docs/contratos/`.
 - Especificações dos serviços seguem o modelo ERS-LLM do grupo de QA (ESP-LOG-001 e ESP-TRP-001).
 
@@ -98,6 +99,7 @@ Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com
 - Reserva de recurso disputado entre as cópias (caminhão, motorista, escolha do frete): gravação condicional (`UPDATE ... WHERE <ainda livre>` e conferir `rowcount`), não `FOR UPDATE` em listas inteiras.
 - `frontend/`: telas estáticas (HTML, CSS, JS puro e Leaflet), servidas pelo contêiner `portal` (`infra/portal/`), que também faz o papel do gateway. `assets/portal.js` tem a sessão, a chamada à API (com erros RFC 7807), o relógio e o sino; cada página tem o seu `.js`. Não use `alert()` nem `confirm()`: use `Portal.avisoRapido` e `Portal.modal`. Arquivos com autenticação (PDF) são baixados com `Portal.baixar`. Cada página declara os perfis que a usam em `Portal.iniciar({ perfis })`. Teste a sintaxe com `node --check`.
 - Transportadora `simulada = TRUE` cota sozinha; `simulada = FALSE` (Rodovia Sul, no seed) só cota digitando (`cotar_manualmente`).
+- `testes_integracao/`: rodam contra o ambiente no ar. Use `apoio.py` (`consultar`, `publicar_pedido`, `mensagens_do_topico`, `esperar`, `docker_compose`, `metrica`) e as fixtures `api`, `entrar` e `relogio` do `conftest.py`. Confira o resultado no banco, na outbox e no tópico, não só na resposta da API.
 - `services/<servico>/migracoes/NNN_*.sql`: DDL executado como `portal_ddl`; terminar com os GRANTs para o `svc_*`. Migrações só rodam com o volume do Postgres vazio (`docker compose down -v`).
 - Os boilerplates do kit não consomem Kafka, guardam dados em memória e têm os problemas listados em `docs/04-analise-do-kit.md`. Não copie código deles sem aplicar as correções.
 
@@ -111,6 +113,8 @@ docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil
 docker compose exec logistica-1 python -m comum.ferramentas.cancelar_pedido_falso --pedido-id <id>
 docker compose logs -f pedidos-falso  # papel do grupo de Pedidos (D23)
 .venv/Scripts/python -m pytest        # testes unitários (criar a .venv com: pip install -e "comum[testes]")
+.venv/Scripts/python -m pytest testes_integracao -v   # integração, com o ambiente no ar (acelera o relógio e derruba contêineres)
+docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js   # carga
 ```
 
 As senhas do `docker-compose.yml` são padrões de desenvolvimento, sobrescritas pelo `.env`. As credenciais do `.env.example` do kit são só de desenvolvimento; não copie senhas do kit para este repositório.
