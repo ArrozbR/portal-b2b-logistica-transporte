@@ -75,13 +75,14 @@ Implementados em `testes_integracao/` (`.venv/Scripts/python -m pytest testes_in
 | Frota | Alterar motorista ou veículo com CNH ou placa de outro cadastro → 409 | Integração (`test_cadastro_da_frota.py`) |
 | Contrato | O script de pedido falso e o consumidor usam o mesmo JSON Schema | Unitário (`test_eventos.py`) |
 | Carga | p95 da leitura do rastreio ≤ 500 ms com muitas telas consultando a cada 5 s | k6 (`testes_carga/leitura.js`): p95 de 470 a 477 ms com 200 usuários, 0% de erros |
+| Carga de escrita | Com 10 pedidos novos por segundo, a escolha continua rápida e nenhum pedido abre duas solicitações | k6 (`testes_carga/escrita.js`): 601 pedidos em 60 s; escolha com p95 de 9,7 ms; 0 duplicada; nenhum caminhão em duas viagens; 0% de erros |
 
 ## 5. Roteiro da demonstração
 
 Cerca de 10 minutos, com o relógio em fator 360 (3 dias de viagem em uns 12 minutos):
 
 1. Kafka UI aberto nos tópicos do grupo.
-2. Um pedido de soja em grão, 24 t, Sorriso (MT) → Santos (SP) chega pelo fluxo dos outros grupos. Se a integração não estiver pronta, o script de contingência publica o pedido (D23).
+2. Um pedido de soja em grão, 24 t, Sorriso (MT) → Santos (SP) chega pelo fluxo dos outros grupos. Se a integração não estiver pronta, o administrador cria o pedido pelo botão "Novo pedido de teste" da tela de solicitações (D23).
 3. `solicitacao_frete_criada` e as cotações chegam, uma por transportadora compatível; a refrigerada não cota. O comprador recebe a notificação.
 4. Uma transportadora entra na tela "Solicitações de frete" e digita uma cotação.
 5. O comprador abre a comparação: selos, gráfico preço × prazo e pontualidade. Escolhe a Expressa, que não é a mais barata. O pedido vai a `FRETE_SELECIONADO`.

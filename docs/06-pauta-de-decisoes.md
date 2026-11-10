@@ -215,7 +215,7 @@ Quem recebe o quê está na [arquitetura](02-arquitetura-proposta.md), seção 8
 
 Para o script não esconder uma divergência de contrato, ele valida o evento contra o mesmo JSON Schema que o serviço usa.
 
-Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferramentas.cancelar_pedido_falso` e o contêiner `pedidos-falso` (etapa 2), que consome os nossos eventos, registra as mudanças de status do pedido e cancela o pedido ao receber `frete_indisponivel`. Na etapa 3, o contêiner `usuarios-falso` faz o papel do grupo de Autenticação no login das telas, só no ambiente de desenvolvimento.
+Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferramentas.cancelar_pedido_falso` e o contêiner `pedidos-falso` (etapa 2), que consome os nossos eventos, registra as mudanças de status do pedido e cancela o pedido ao receber `frete_indisponivel`. Na etapa 3, o contêiner `usuarios-falso` faz o papel do grupo de Autenticação no login das telas, só no ambiente de desenvolvimento. Depois, o `pedidos-falso` ganhou rotas só do admin para criar e cancelar pedidos de teste, usadas pelo botão "Novo pedido de teste" da tela de solicitações e pelo teste de carga de escrita ([explicação 09](explicacoes/09-pedido-de-teste-e-carga-de-escrita.md)).
 
 ### D24. Repasse de conhecimento
 

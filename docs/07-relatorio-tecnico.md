@@ -192,14 +192,15 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 
 | Tipo | Onde | Quantidade | Resultado |
 |---|---|---|---|
-| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs, token, retentativas e DLT) | `comum/tests`, `services/*/tests` | 104 | Todos passam |
+| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs, token, retentativas e DLT, pedido de teste) | `comum/tests`, `services/*/tests` | 132 | Todos passam |
 | Integração (contra Redpanda e PostgreSQL de verdade, conferindo banco e tópicos) | `testes_integracao/` | 6 | Todos passam, com o token RS256 (≈ 2 min 45 s) |
-| Carga (k6) | `testes_carga/leitura.js` | 1 cenário | Passou (seção 11.3) |
+| Carga (k6) | `testes_carga/leitura.js`, `testes_carga/escrita.js` | 2 cenários | Passaram (seção 11.3) |
 
 ```bash
 .venv/Scripts/python -m pytest                       # unitários
 .venv/Scripts/python -m pytest testes_integracao -v  # integração (ambiente no ar)
 docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js
+docker run --rm -i --network logistica-grupo5_default -e TAXA=10 grafana/k6:0.54.0 run - < testes_carga/escrita.js
 ```
 
 ### 11.2 Os cenários distribuídos
@@ -228,13 +229,30 @@ Critério do kit (guia, seção 10.2): p95 de leitura ≤ 500 ms com 200 requisi
 
 Passou, **com pouca folga**. O limite vem do pool de 5 conexões por cópia (10 no total), que é regra do kit. A carga real da tela é bem menor: 200 telas abertas consultando a cada 5 s dão 40 requisições por segundo, 20 vezes menos que o teste.
 
+**Escrita.** Critério do kit: p95 de escrita ≤ 1000 ms. O cenário (`testes_carga/escrita.js`) faz o fluxo inteiro, 10 pedidos novos por segundo durante 60 s: o admin cria o pedido de teste (o `pedidos-falso` publica `pedido_criado`), o teste espera as cotações, o comprador escolhe a mais barata, o teste espera a transportadora escalar o caminhão e, no fim, cancela o pedido para liberar a frota.
+
+| Métrica | Resultado |
+|---|---|
+| Pedidos | 601 |
+| Requisições | 5.238, 0% de erros |
+| p95 da escolha do frete (API-06) | 9,7 ms |
+| p95 da criação do pedido | 2,8 ms |
+| Do pedido às cotações (p95) | 511 ms (o teste consulta a cada 0,5 s, então esse é o mínimo que ele mede) |
+| Solicitações duplicadas | 0 |
+| Viagens com caminhão escalado | 491 |
+| Sem caminhão livre na hora da escolha | 86 |
+| Sem cotação (nenhuma transportadora com frota livre) | 24 |
+| Caminhão ou motorista em duas viagens ativas ao mesmo tempo | 0, em 233 consultas ao banco durante o teste (a cada 0,3 s) |
+
+Passou com folga. Os 110 pedidos sem caminhão não são erro: a frota do seed tem 7 caminhões de granel, e, com vários pedidos ao mesmo tempo, a disputa é real. O resultado mostra as regras funcionando sob carga: ninguém cotou sem frota livre (D20), a recusa da viagem levou à próxima cotação ou ao `frete_indisponivel` (RN-23 e RN-24 da ESP-LOG-001), e a reserva condicional nunca deu o mesmo caminhão ou motorista a duas viagens.
+
 ### 11.4 Validação por etapa
 
 Além dos testes automatizados, cada etapa foi validada no ambiente com um roteiro de verificações: 31 na etapa 2, 49 na etapa 3 e 65 na etapa 4, todas passando, e as telas conferidas no navegador. Os resultados estão nas [explicações](explicacoes/).
 
 ### 11.5 Especificações para o grupo de Teste e Qualidade
 
-As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 requisitos funcionais, 72 critérios de aceitação) e [ESP-TRP-001](especificacoes/ESP-TRP-001_Transportadoras.md) (13 requisitos funcionais, 42 critérios) seguem o modelo ERS-LLM v1.2 do QA. Elas descrevem o código como ele é: os exemplos de resposta e de erro foram capturados do ambiente, e os valores de cotação, distância, datas e sorteio foram calculados pelas mesmas funções do código. Os critérios mais específicos (escolha e replay, cancelamento, DLT com 3 retentativas, Redpanda fora do ar, sorteio do motorista, parada, atraso e entrega da viagem) foram conferidos no ambiente. Escrever as especificações revelou quatro defeitos, corrigidos e cobertos por teste (ver a [explicação 07](explicacoes/07-especificacoes-ers-llm.md)).
+As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (19 requisitos funcionais, 82 critérios de aceitação, todas as 18 rotas do serviço) e [ESP-TRP-001](especificacoes/ESP-TRP-001_Transportadoras.md) (13 requisitos funcionais, 42 critérios) seguem o modelo ERS-LLM v1.2 do QA. Elas descrevem o código como ele é: os exemplos de resposta e de erro foram capturados do ambiente, e os valores de cotação, distância, datas e sorteio foram calculados pelas mesmas funções do código. Os critérios mais específicos (escolha e replay, cancelamento, DLT com 3 retentativas, Redpanda fora do ar, sorteio do motorista, parada, atraso e entrega da viagem) foram conferidos no ambiente. Escrever as especificações revelou quatro defeitos, corrigidos e cobertos por teste (ver a [explicação 07](explicacoes/07-especificacoes-ers-llm.md)). A versão 1.2 da ESP-LOG-001 acrescentou notificações, ocorrências e documentos e revelou um quinto: uma ocorrência só com espaços era gravada vazia ([explicação 09](explicacoes/09-pedido-de-teste-e-carga-de-escrita.md)).
 
 ## 12. Registro de decisões (ADRs)
 
@@ -412,8 +430,8 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 
 ### ADR-023: Contingência com JSON Schema
 
-- **Decisão:** `publicar_pedido_falso`, `cancelar_pedido_falso` e o contêiner `pedidos-falso` fazem o papel do grupo de Pedidos, sempre no formato validado pelo mesmo JSON Schema que o serviço usa.
-- **Consequências:** os testes não passam com um formato que o serviço real recusaria.
+- **Decisão:** `publicar_pedido_falso`, `cancelar_pedido_falso` e o contêiner `pedidos-falso` fazem o papel do grupo de Pedidos, sempre no formato validado pelo mesmo JSON Schema que o serviço usa. O `pedidos-falso` também tem rotas só do admin para criar e cancelar pedidos de teste (botão na tela de solicitações e teste de carga de escrita); elas publicam no Kafka, como o grupo de Pedidos faria, e não chamam nenhum serviço nosso.
+- **Consequências:** os testes não passam com um formato que o serviço real recusaria. A demonstração não depende do terminal para criar pedidos.
 
 ### ADR-024: Ambiente próprio, arquivos dentro das imagens
 
@@ -443,11 +461,11 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 | Migrações sem controle de versão | Só rodam com o banco vazio | Ferramenta de migração (Alembic, Flyway) |
 | Publicação da outbox serializada | Vazão de publicação limitada | Trava por chave em vez de global |
 | p95 de leitura perto de 500 ms com 200 usuários | Pouca folga no critério do kit | Índices específicos, cache de leitura curta, mais cópias |
-| Carga de escrita não medida | O critério de escrita do kit (p95 ≤ 1000 ms) não foi verificado | Cenário k6 de escolha de frete |
 | Notificações por empresa, não por usuário | Todos da empresa veem as mesmas | Destinatário por usuário |
 | Login de demonstração com token de 8 h | Só desenvolvimento | Usar o `usuarios-service` |
 | Tela de login só de demonstração | O portal entra pelo `usuarios-falso`, não pelo login e pela troca de contexto da Autenticação | Usar o login da Autenticação no gateway |
-| Especificações ERS-LLM ainda sem a revisão do QA (gate G1) | Podem mudar depois da revisão; notificações, ocorrências e documentos ficaram para a versão 1.1 | Revisão do QA; ESP 1.1 |
+| Especificações ERS-LLM ainda sem a revisão do QA (gate G1) | Podem mudar depois da revisão | Revisão do QA |
+| O relógio do módulo nunca volta, e cada rodada da integração o adianta | Depois de muitas rodadas no mesmo ambiente, as CNHs do seed vencem e as transportadoras param de cotar; a suíte avisa e pede `docker compose down -v` | Seed com CNHs de validade longa, ou recriar o ambiente antes de cada rodada |
 | O relógio do módulo só acelera e adianta | Um teste não consegue pôr o relógio num instante exato; os critérios com data conferem relações a partir do `aberta_em` | Rota de teste para fixar o relógio, só no ambiente de desenvolvimento |
 | `SEM_TRANSPORTADORA` com dois status | 404 em `/minha`, 403 nas rotas de cargas e cotação | Unificar em 403 junto com a tela |
 
@@ -497,3 +515,4 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 | 1.1 | 10/11/2026 | Integração com as definições dos outros grupos: token RS256 da Autenticação (ADR-026), DLT no formato do kit, `fornecimentoId` aceito no `pedido_criado`, pendências da seção 15 |
 | 1.3 | 10/11/2026 | Token conforme o código do Identity-Service: `iss` e `aud` conferidos, admin pelo `platform_role` (ADR-026) |
 | 1.2 | 10/11/2026 | Especificações ESP-LOG-001 e ESP-TRP-001 (seção 11.5) e os quatro defeitos achados ao escrevê-las; 104 testes unitários e 6 de integração |
+| 1.4 | 10/11/2026 | Carga de escrita medida (seção 11.3); pedido de teste pela tela (ADR-023); ESP-LOG-001 1.2 com todas as rotas; 132 testes unitários |

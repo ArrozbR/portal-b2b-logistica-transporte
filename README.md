@@ -87,7 +87,8 @@ cp .env.example .env               # opcional: troque as senhas
 docker compose up -d --build       # sobe tudo
 docker compose ps                  # aguarde tudo ficar healthy/running
 
-# publica um pedido falso (Sorriso/MT → Santos/SP, 24 t de soja)
+# cria um pedido de teste: entre como Administrador e use o botão "Novo pedido de teste"
+# na tela de solicitações; ou, pelo terminal (Sorriso/MT → Santos/SP, 24 t de soja):
 docker compose exec logistica-1 python -m comum.ferramentas.publicar_pedido_falso
 
 docker compose logs -f logistica-1 transportadoras-1
@@ -105,7 +106,7 @@ docker compose down -v             # derruba e apaga os dados
 
 Token para chamar a API: `docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil admin`.
 
-O contêiner `pedidos-falso` faz o papel do grupo de Pedidos (`docker compose logs -f pedidos-falso`). Para cancelar um pedido de teste: `docker compose exec logistica-1 python -m comum.ferramentas.cancelar_pedido_falso --pedido-id <id>`.
+O contêiner `pedidos-falso` faz o papel do grupo de Pedidos (`docker compose logs -f pedidos-falso`): cria os pedidos de teste do botão do admin (publica `pedido_criado`) e reage aos nossos eventos. Para cancelar um pedido de teste: `docker compose exec logistica-1 python -m comum.ferramentas.cancelar_pedido_falso --pedido-id <id>`.
 
 Quando uma migração nova é adicionada, o banco de desenvolvimento precisa ser recriado: `docker compose down -v && docker compose up -d --build`.
 
@@ -124,7 +125,10 @@ Testes de integração e de carga, com o ambiente no ar (eles aceleram o relógi
 ```bash
 .venv/Scripts/python -m pytest testes_integracao -v      # os 4 cenários distribuídos, o fluxo completo e a frota (~3 min)
 docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js
+docker run --rm -i --network logistica-grupo5_default -e TAXA=10 grafana/k6:0.54.0 run - < testes_carga/escrita.js
 ```
+
+Cada rodada da integração adianta o relógio do módulo, que nunca volta. Depois de muitas rodadas no mesmo ambiente, a hora do módulo passa da validade das CNHs do seed, e as transportadoras param de cotar. A suíte confere isso no começo e pede para recriar o ambiente (`docker compose down -v && docker compose up -d --build`).
 
 O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](docs/explicacoes/).
 

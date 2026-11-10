@@ -53,7 +53,7 @@ O relógio do módulo faz o papel do relógio controlável: o teste acelera ou a
 
 ### 3.3 O que ficou de fora da versão 1.0
 
-Notificações, ocorrências e documentos em PDF existem no serviço, mas ficaram para a versão 1.1 da ESP-LOG-001. A versão 1.0 cobre o núcleo do fluxo do frete, que é o que os outros grupos e o QA precisam primeiro.
+Notificações, ocorrências e documentos em PDF existem no serviço, mas ficaram fora da versão 1.0 da ESP-LOG-001. A versão 1.0 cobre o núcleo do fluxo do frete, que é o que os outros grupos e o QA precisam primeiro. Eles entraram na versão 1.2 ([explicação 09](09-pedido-de-teste-e-carga-de-escrita.md)), e agora todas as rotas do serviço estão especificadas.
 
 ### 3.4 Um critério com dois resultados aceitos
 

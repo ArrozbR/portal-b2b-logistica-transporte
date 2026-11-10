@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-LOG-001 |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `logistica-service`: solicitação de frete, escolha do frete, entrega e rastreio. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -57,12 +57,16 @@ Telas ─► gateway ─REST /api/v1/logistica──►│ logistica-service
 - Entrega: criação na escolha, acompanhamento por `rastreio_atualizado`, troca de transportadora quando a escolhida recusa a viagem, conclusão com `entrega_concluida` e contagem da pontualidade.
 - Cancelamento do pedido por `pedido_atualizado`, inclusive quando o cancelamento chega antes do pedido.
 - Relógio do módulo: consulta, ajuste pelo administrador e publicação de `relogio_ajustado`.
-- Consultas de solicitações, entregas, rastreio e entrega de um pedido.
+- Consultas de solicitações (inclusive pelo pedido), entregas, rastreio e entrega de um pedido.
+- Ocorrências reportadas pelo comprador ou pelo fornecedor numa entrega (D22).
+- Documentos demonstrativos da entrega em PDF, sem valor fiscal (D21).
+- Notificações no portal para comprador e fornecedor, gravadas na mesma transação da mudança que as gera, e marcação de lida (D22).
 - Saúde (`/health`, `/health/ready`) e métricas (`/metrics`).
 
 ### 3.2 Fora do escopo (não implementar)
 
-- Notificações no portal (rotas `/api/v1/logistica/notificacoes`), ocorrências reportadas pelo usuário (`/entregas/{id}/ocorrencias`) e documentos em PDF (`/entregas/{id}/documentos/{tipo}`). Existem no serviço e ficam para a versão 1.1 desta especificação (Q-06).
+- Envio de notificação por e-mail, SMS ou push; notificação para transportadora ou admin.
+- Documento fiscal de verdade (CT-e, NF-e junto à SEFAZ). Edição ou exclusão de ocorrência.
 - Telas (HTML, JavaScript, mapa).
 - Login, emissão e renovação de token (grupo de Autenticação).
 - Cadastro de transportadoras, motoristas e veículos; cálculo do preço da cotação; simulação da viagem (ESP-TRP-001).
@@ -207,7 +211,7 @@ Internos (não aparecem na API): `rodada_ate` (hora real da abertura + 10 s), `c
 | progresso | número | Sim | 0 a 1. Inicial 0. |
 | posicao_lat, posicao_lon | número ou `null` | Não | Última posição recebida. |
 | rota | lista de `[lat, lon]` ou `null` | Não | `VIAGEM_ALOCADA`. |
-| com_ocorrencia | booleano | Sim | Inicial `false`; `true` depois de um rastreio `OCORRENCIA`. |
+| com_ocorrencia | booleano | Sim | Inicial `false`; `true` depois de um rastreio `OCORRENCIA` ou de uma ocorrência reportada pela API-15. |
 | no_prazo | booleano ou `null` | Não | `ENTREGA_REALIZADA`. |
 | atraso_horas | número ou `null` | Não | `ENTREGA_REALIZADA`. |
 | atualizado_em | instante | Sim | Hora real da última alteração (campo técnico). |
@@ -221,6 +225,31 @@ Interno: `ultima_sequencia` (inteiro, inicial 0): maior `sequencia` de rastreio 
 #### DesempenhoTransportadora
 
 `transportadora_id`, `nome`, `entregas`, `entregas_no_prazo`, `atraso_total_horas`. Uma linha por transportadora com pelo menos uma entrega concluída (RN-25).
+
+#### Ocorrencia
+
+| Atributo | Tipo | Obrigatório | Restrições / origem |
+|---|---|---|---|
+| id | string | Sim | UUID4 gerado pelo serviço. |
+| autor_papel | enum | Sim | `"comprador"` ou `"fornecedor"`: o perfil de quem reportou. |
+| descricao | string | Sim | Sem os espaços das pontas; 5 a 500 caracteres depois de tirá-los (RN-33). |
+| ocorrida_em | instante | Sim | Hora do módulo ao reportar. |
+
+Internos (não aparecem na API): `entrega_id`, `pedido_id`, `autor_id` (`sub` de quem reportou).
+
+#### Notificacao
+
+| Atributo | Tipo | Obrigatório | Restrições / origem |
+|---|---|---|---|
+| id | string | Sim | UUID4 gerado pelo serviço. |
+| tipo | enum | Sim | Um dos 10 tipos da RN-32. |
+| titulo | string | Sim | Literal da RN-32 para o tipo. |
+| mensagem | string | Sim | Texto em português com o `pedido_id`; pode mudar (só o `titulo` e o `tipo` são literais). Datas na mensagem no horário de Brasília (`dd/mm/aaaa hh:mm`), valores como `R$ 7.113,30`. |
+| pedido_id, solicitacao_id | string | Sim | Do pedido que gerou a notificação. |
+| lida | booleano | Sim | Inicial `false`; muda pela API-18. |
+| criada_em | instante | Sim | Hora do módulo na mudança que gerou a notificação. |
+
+Internos: `empresa_id` e `papel` (`"comprador"` ou `"fornecedor"`), o destinatário; `criado_em_real` (hora real, desempate da ordem).
 
 #### Outros
 
@@ -320,6 +349,11 @@ Listagens paginadas: `?page=` (≥ 1, padrão 1) e `?size=` (1 a 100, padrão 10
 | API-11 | GET | `/api/v1/logistica/pedidos/{pedido_id}/entrega` | comprador, fornecedor, admin | 200 | 401/503 → 403 → 404 `ENTREGA_NAO_ENCONTRADA` |
 | API-12 | GET | `/api/v1/logistica/relogio` | qualquer perfil | 200 | 401/503 → 403 (só pelos casos 6 do §7.1) |
 | API-13 | POST | `/api/v1/logistica/admin/relogio` | admin | 200 | 422 (JSON ilegível) → 401/503 → 403 → 422 `DADOS_INVALIDOS` |
+| API-14 | GET | `/api/v1/logistica/entregas/{entrega_id}/ocorrencias` | comprador, fornecedor, admin | 200 | 401/503 → 403 → 404 `ENTREGA_NAO_ENCONTRADA` |
+| API-15 | POST | `/api/v1/logistica/entregas/{entrega_id}/ocorrencias` | comprador, fornecedor | 201 | 422 (JSON ilegível) → 401/503 → 403 → 422 `DADOS_INVALIDOS` → 404 `ENTREGA_NAO_ENCONTRADA` → 409 `ENTREGA_ENCERRADA` |
+| API-16 | GET | `/api/v1/logistica/entregas/{entrega_id}/documentos/{tipo}` | comprador, fornecedor, admin | 200 (`application/pdf`) | 401/503 → 403 → 422 `DADOS_INVALIDOS` → 404 `ENTREGA_NAO_ENCONTRADA` → 409 `DOCUMENTO_INDISPONIVEL` |
+| API-17 | GET | `/api/v1/logistica/notificacoes` | comprador, fornecedor | 200 | 401/503 → 403 → 422 `DADOS_INVALIDOS` |
+| API-18 | PATCH | `/api/v1/logistica/notificacoes/{notificacao_id}` | comprador, fornecedor | 200 | 422 (JSON ilegível) → 401/503 → 403 → 422 `DADOS_INVALIDOS` → 404 `NOTIFICACAO_NAO_ENCONTRADA` |
 
 #### API-01 — Saúde
 
@@ -341,7 +375,7 @@ Texto no formato Prometheus, com os contadores `http_requests_total{service,meth
 
 #### API-04 — Listar solicitações
 
-Parâmetros: `status` (opcional, um dos 6 status da solicitação), `page`, `size`. Só as visíveis para o usuário, ordenadas por `aberta_em` decrescente. Cada item tem os campos da API-05, sem `cotacoes`.
+Parâmetros: `status` (opcional, um dos 6 status da solicitação), `pedido_id` (opcional, 1 a 64 caracteres; igualdade exata, devolve no máximo 1 item, RN-05), `page`, `size`. Os filtros se somam (E). Só as visíveis para o usuário, ordenadas por `aberta_em` decrescente. Cada item tem os campos da API-05, sem `cotacoes`.
 
 ```json
 {
@@ -600,7 +634,7 @@ Parâmetros: `status` (opcional, um dos 6 status da entrega), `incluir_recusadas
 ```
 - `posicao`, `posicaoEm` e `previsaoChegada` são `null` antes da primeira posição; `rota` é `[]` antes do `VIAGEM_ALOCADA`.
 - `eventos`: os rastreios aplicados, por `sequencia` crescente.
-- `ocorrencias`: ocorrências reportadas pelo usuário (cadastro fora do escopo, §3.2); `[]` quando não houver.
+- `ocorrencias`: as mesmas ocorrências da API-14, na mesma ordem; `[]` quando não houver.
 
 #### API-11 — Entrega de um pedido
 
@@ -621,6 +655,67 @@ Resposta 200 (o novo estado; `horaDoModulo` é a nova `base_virtual` e `horaReal
 ```json
 {"horaDoModulo": "2026-11-10T12:10:00.000Z", "horaReal": "2026-11-10T12:10:00.000Z", "fator": 3600.0, "versao": 1}
 ```
+
+#### API-14 — Ocorrências da entrega
+
+Todas as ocorrências da entrega (RN-33), por `ocorrida_em` crescente. Não é paginada.
+
+```json
+{
+  "items": [
+    {"id": "4f0430e0-6382-4f0c-8183-9ea5a0c942ef", "autor_papel": "comprador",
+     "descricao": "Lona da carreta rasgada na foto da coleta.", "ocorrida_em": "2026-11-10T12:30:00.000Z"}
+  ]
+}
+```
+Sem ocorrências: `{"items": []}`.
+
+#### API-15 — Reportar ocorrência
+
+Requisição: `{"descricao": "  Lona da carreta rasgada na foto da coleta.  "}`. `descricao`: texto obrigatório; os espaços das pontas são retirados e o restante deve ter de 5 a 500 caracteres (RN-33).
+
+Resposta 201: a ocorrência gravada, como um item da API-14 (com `descricao` sem os espaços das pontas). Efeitos na mesma transação: `com_ocorrencia` da entrega vira `true` e a outra parte recebe a notificação `OCORRENCIA` (RN-32).
+
+#### API-16 — Documento da entrega em PDF
+
+`tipo` ∈ {`cte`, `romaneio`, `nota-fiscal`, `comprovante-coleta`}. Resposta 200 com `Content-Type: application/pdf` e `Content-Disposition: inline; filename="<tipo>-<pedido_id>.pdf"` (por exemplo, `cte-PED-1001.pdf`). Conteúdo na RN-34.
+
+#### API-17 — Notificações do usuário
+
+Parâmetros: `lida` (opcional, booleano: `true` só lidas, `false` só não lidas), `page`, `size`. Só as notificações da empresa e do perfil do usuário (RN-32), por `criada_em` decrescente; empate pela ordem de gravação, a mais nova primeiro. `naoLidas` conta todas as não lidas do usuário, com ou sem filtro.
+
+```json
+{
+  "items": [
+    {
+      "id": "02adbb1c-c545-43c5-8b71-4083d01e2cae",
+      "tipo": "MOTORISTA_ESCALADO",
+      "titulo": "Motorista escalado",
+      "mensagem": "Roberto Nunes, com o veículo PAS6J78, fará a entrega do pedido PED-1001. Coleta prevista para 10/11/2026 11:05.",
+      "pedido_id": "PED-1001",
+      "solicitacao_id": "5c0e7b9a-3d2f-4e8a-9b1c-7f6a2d4e8c10",
+      "lida": false,
+      "criada_em": "2026-11-10T12:05:00.300Z"
+    },
+    {
+      "id": "21efc7fe-8db0-4e7d-b6c5-4889d1908d61",
+      "tipo": "FRETE_ESCOLHIDO",
+      "titulo": "Frete escolhido",
+      "mensagem": "O frete do pedido PED-1001 foi escolhido pelo comprador: Graneleira Centro-Oeste, R$ 7.113,30, 5 dias úteis.",
+      "pedido_id": "PED-1001",
+      "solicitacao_id": "5c0e7b9a-3d2f-4e8a-9b1c-7f6a2d4e8c10",
+      "lida": false,
+      "criada_em": "2026-11-10T12:05:00.000Z"
+    }
+  ],
+  "page": 1, "size": 10, "total": 2, "naoLidas": 2
+}
+```
+(Exemplo: U-FORN depois de E-1 com o `VIAGEM_ALOCADA`.)
+
+#### API-18 — Marcar notificação
+
+Requisição: `{"lida": true}` ou `{"lida": false}`. `lida` é booleano e opcional (padrão `true`; o corpo `{}` marca como lida). Resposta 200: a notificação, como um item da API-17, com o novo `lida`. Marcar de novo com o mesmo valor também responde 200. Notificação de outra empresa ou de outro perfil → 404 `NOTIFICACAO_NAO_ENCONTRADA`.
 
 ### 7.3 Eventos consumidos
 
@@ -1030,6 +1125,18 @@ Cenário: Casos do token (verificados também por teste unitário)
   Então o usuário é admin (a API-12 e a API-13 respondem 200)
   Quando o token tem platform_role "SUPPORT_AGENT" e active_scope "TENANT_ADMIN"
   Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
+
+# CA-73
+Cenário: Solicitação pelo pedido
+  Dado S-1 e S-2
+  Quando U-COMP consulta a API-04 com pedido_id=PED-1001
+  Então a resposta é 200 com total 1 e o único item com id igual ao de S-1
+  Quando U-COMP consulta com pedido_id=PED-1001&status=SELECIONADA (S-1 ainda COTADA)
+  Então items é [] e total é 0
+  Quando U-COMP2 consulta com pedido_id=PED-1001, ou U-COMP consulta com pedido_id=PED-9999
+  Então items é [] e total é 0
+  Quando U-COMP consulta com pedido_id= (vazio) ou com 65 caracteres
+  Então a resposta é 422 com codigo "DADOS_INVALIDOS" e erros[0].campo "query.pedido_id"
 ```
 
 ### RF-06 — Escolha do frete pelo comprador
@@ -1470,6 +1577,135 @@ Cenário: Falha que não é do contrato tem 3 retentativas
   E entre 7 s e 15 s depois há uma mensagem em "logistica.dlt" com failedAtAttempt 4
 ```
 
+### RF-17 — Notificações no portal
+
+- **Prioridade:** Should
+- **Enunciado (EARS):** Quando uma mudança da RN-32 for gravada, o serviço deve gravar, na mesma transação, uma notificação para cada destinatário da RN-32. Quando um comprador ou fornecedor consultar a API-17 ou enviar a API-18, o serviço deve devolver ou alterar só as notificações da sua empresa e do seu perfil.
+- **Regras aplicáveis:** RN-28, RN-32
+- **Interface:** API-17, API-18
+
+```gherkin
+# CA-74
+Cenário: Notificações do fluxo com escolha pelo comprador
+  Dado S-1 COTADA
+  Então a API-17 de U-COMP tem 1 item: tipo "COTACOES_DISPONIVEIS", titulo "Cotações de frete disponíveis", pedido_id "PED-1001", solicitacao_id igual ao id de S-1, lida false e criada_em igual ao recebida_em da primeira cotação de S-1; e naoLidas 1
+  E a mensagem contém "PED-1001" e "10/11/2026 21:00" (prazo_decisao_em no horário de Brasília)
+  E a API-17 de U-FORN tem total 0
+  Quando U-COMP escolhe C-GRA (CA-21) e o VIAGEM_ALOCADA de E-1 é aplicado
+  Então a API-17 de U-FORN tem 2 itens, nesta ordem: "MOTORISTA_ESCALADO" e "FRETE_ESCOLHIDO", e naoLidas 2
+  E a mensagem do FRETE_ESCOLHIDO contém "pelo comprador", "Graneleira Centro-Oeste", "R$ 7.113,30" e "5 dias úteis"
+  E a API-17 de U-COMP tem 2 itens: "MOTORISTA_ESCALADO" e "COTACOES_DISPONIVEIS" (quem escolheu não recebe "FRETE_ESCOLHIDO")
+  E U-COMP2 tem total 0
+
+# CA-75
+Cenário: Notificações da regra automática e da falta de cotação
+  Dado o cenário do CA-37 (a rotina de prazos escolheu C-ECO)
+  Então U-COMP e U-FORN têm, cada um, 1 notificação "FRETE_ESCOLHIDO" de "PED-1001", com "pela regra automática (menor preço)" na mensagem
+  Dado o cenário do CA-14 (S-2 SEM_COTACAO)
+  Então U-COMP e U-FORN têm, cada um, 1 notificação "SEM_COTACAO" de "PED-1002" com titulo "Nenhuma transportadora cotou ainda"
+  Quando o prazo vence (CA-15)
+  Então cada um tem também 1 notificação "FRETE_INDISPONIVEL" de "PED-1002" com titulo "Frete indisponível"
+  E nenhuma notificação é gravada por pedido_atualizado CANCELADO (CA-41)
+
+# CA-76
+Cenário: Lista de notificações
+  Dado U-FORN com as 2 notificações do CA-74, ambas não lidas
+  Quando U-FORN marca a "MOTORISTA_ESCALADO" como lida (API-18) e consulta a API-17 com lida=false
+  Então items tem só a "FRETE_ESCOLHIDO", total 1 e naoLidas 1
+  Quando consulta com lida=true
+  Então items tem só a "MOTORISTA_ESCALADO", total 1 e naoLidas 1
+  Quando consulta com size=1
+  Então items tem só a "MOTORISTA_ESCALADO", total 2 e naoLidas 1
+  Quando consulta com size=101 ou lida=talvez
+  Então a resposta é 422 com codigo "DADOS_INVALIDOS"
+  Quando U-ADM ou U-TRANSP consulta a API-17
+  Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
+
+# CA-77
+Cenário: Marcar como lida ou não lida
+  Dado a notificação N = "FRETE_ESCOLHIDO" de U-FORN no CA-74
+  Quando U-FORN envia a API-18 de N com {"lida": true}
+  Então a resposta é 200 com o id de N, tipo "FRETE_ESCOLHIDO" e lida true
+  Quando envia de novo {"lida": true}, ou envia {}
+  Então a resposta é 200 com lida true
+  Quando envia {"lida": false}
+  Então a resposta é 200 com lida false e a API-17 volta a contar N em naoLidas
+  Quando U-COMP envia a API-18 de N, ou U-FORN envia a API-18 de "nao-existe"
+  Então a resposta é 404 com codigo "NOTIFICACAO_NAO_ENCONTRADA"
+  Quando U-FORN envia {"lida": "talvez"}
+  Então a resposta é 422 com codigo "DADOS_INVALIDOS" e erros[0].campo "body.lida"
+  Quando U-ADM envia a API-18 de N
+  Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
+```
+
+### RF-18 — Ocorrências reportadas pelo usuário
+
+- **Prioridade:** Should
+- **Enunciado (EARS):** Quando um comprador ou fornecedor enviar a API-15 válida para uma entrega visível e não cancelada nem recusada, o serviço deve gravar a ocorrência com a hora do módulo, marcar `com_ocorrencia` na entrega e notificar a outra parte, na mesma transação. Quando um usuário consultar a API-14, o serviço deve devolver as ocorrências da entrega visível.
+- **Regras aplicáveis:** RN-19, RN-32, RN-33
+- **Interface:** API-14, API-15, API-10
+
+```gherkin
+# CA-78
+Cenário: Comprador reporta uma ocorrência
+  Dado E-1 com status "AGUARDANDO_COLETA" e com_ocorrencia false
+  Quando U-COMP envia a API-15 de E-1 com {"descricao": "  Lona da carreta rasgada na foto da coleta.  "}
+  Então a resposta é 201 com autor_papel "comprador", descricao "Lona da carreta rasgada na foto da coleta." (sem os espaços das pontas), id UUID e ocorrida_em igual à hora do módulo
+  E a API-09 de E-1 tem com_ocorrencia true e o mesmo status
+  E a API-14 de E-1, por U-FORN ou U-ADM, tem 1 item igual à resposta, e a API-10 tem o mesmo item em ocorrencias
+  E U-FORN tem 1 notificação "OCORRENCIA" com titulo "Ocorrência na entrega" e mensagem contendo "O comprador" e "Lona da carreta rasgada"
+  E U-COMP não recebe notificação "OCORRENCIA"
+  Quando U-FORN envia a API-15 de E-1 com {"descricao": "Carga conferida, sem avaria."}
+  Então a resposta é 201 com autor_papel "fornecedor", a API-14 tem 2 itens por ocorrida_em crescente e U-COMP recebe 1 notificação "OCORRENCIA" com "O fornecedor" na mensagem
+
+# CA-79
+Cenário: Ocorrência recusada
+  Quando U-COMP envia a API-15 de E-1 com descricao "     " (5 espaços), "  abc  ", "abcd" ou 501 caracteres, ou sem descricao
+  Então a resposta é 422 com codigo "DADOS_INVALIDOS" e erros[0].campo "body.descricao", e a API-14 não muda
+  Quando U-ADM ou U-TRANSP envia a API-15 de E-1
+  Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
+  Quando U-COMP2 envia a API-15 ou consulta a API-14 de E-1, ou U-COMP usa a entrega "nao-existe"
+  Então a resposta é 404 com codigo "ENTREGA_NAO_ENCONTRADA"
+  Dado E-1 CANCELADA (pedido_atualizado CANCELADO de "PED-1001", CA-42)
+  Quando U-FORN envia a API-15 de E-1 com {"descricao": "Depois do cancelamento"}
+  Então a resposta é 409 com codigo "ENTREGA_ENCERRADA" e nenhuma notificação é gravada
+  E a API-14 de E-1 continua respondendo 200 com as ocorrências anteriores
+```
+
+### RF-19 — Documentos demonstrativos em PDF
+
+- **Prioridade:** Could
+- **Enunciado (EARS):** Quando um usuário com perfil comprador, fornecedor ou admin pedir a API-16 de uma entrega visível, o serviço deve gerar o PDF do `tipo` com os dados atuais da entrega e a marca "DOCUMENTO DEMONSTRATIVO - SEM VALOR FISCAL". Se o `tipo` for `comprovante-coleta` e a carga ainda não tiver sido coletada, então o serviço deve responder 409 `DOCUMENTO_INDISPONIVEL`.
+- **Regras aplicáveis:** RN-19, RN-34
+- **Interface:** API-16
+
+```gherkin
+# CA-80
+Cenário: Documentos da entrega
+  Dado E-1 depois do VIAGEM_ALOCADA (Roberto Nunes, PAS6J78) e antes da coleta
+  Quando U-COMP pede a API-16 de E-1 com tipo cte, romaneio ou nota-fiscal
+  Então a resposta é 200 com Content-Type "application/pdf", Content-Disposition 'inline; filename="<tipo>-PED-1001.pdf"' e corpo começando com "%PDF-"
+  E o texto do PDF contém "DOCUMENTO DEMONSTRATIVO - SEM VALOR FISCAL", "PED-1001" e "Nº " seguido do número da RN-34 (cte 154995, romaneio 154205, nota-fiscal 448765)
+  E o texto do cte contém "Graneleira Centro-Oeste", "PAS6J78" e "Roberto Nunes"
+  Quando U-COMP pede o mesmo tipo de novo
+  Então o número é o mesmo
+  Dado E-1 depois do COLETA_REALIZADA
+  Quando U-FORN ou U-ADM pede a API-16 de E-1 com tipo comprovante-coleta
+  Então a resposta é 200 e o texto contém "Nº 600897"
+
+# CA-81
+Cenário: Documento recusado
+  Dado E-1 antes do COLETA_REALIZADA
+  Quando U-COMP pede a API-16 de E-1 com tipo comprovante-coleta
+  Então a resposta é 409 com codigo "DOCUMENTO_INDISPONIVEL"
+  Quando U-COMP pede com tipo boleto
+  Então a resposta é 422 com codigo "DADOS_INVALIDOS" e erros[0].campo "path.tipo"
+  Quando U-COMP2 pede a API-16 de E-1, ou U-COMP pede a da entrega "nao-existe"
+  Então a resposta é 404 com codigo "ENTREGA_NAO_ENCONTRADA"
+  Quando U-TRANSP pede a API-16 de E-1
+  Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
+```
+
 ## 9. Regras de negócio
 
 | ID | Regra | Exemplo concreto |
@@ -1505,6 +1741,9 @@ Cenário: Falha que não é do contrato tem 3 retentativas
 | RN-29 | A API-08 omite entregas `RECUSADA`, a menos que `incluir_recusadas=true`; com `status` informado, vale só o filtro de status. A API-11 devolve a entrega de maior `tentativa` do pedido, de qualquer status. | CA-51. |
 | RN-30 | Consumo: o `eventId` é gravado em `processed_events` na mesma transação do efeito; um `eventId` já gravado é ignorado. JSON ilegível, envelope incompleto, payload fora do contrato ou referência inexistente (`EventoInvalido`) → DLT direto (`failedAtAttempt` 1). Outra falha → novas tentativas depois de 1 s, 2 s e 4 s; depois → DLT (`failedAtAttempt` 4). Mensagem com `eventId` que foi para a DLT por payload inválido fica marcada: uma cópia dela é ignorada. O offset só avança depois de processar ou de gravar na DLT; se o banco estiver fora, o consumidor espera e não perde a mensagem. | CA-61, CA-62. |
 | RN-31 | Requisição com erro (qualquer 4xx) não altera estado, não grava evento e não memoriza a `Idempotency-Key`. | CA-33. |
+| RN-32 | Notificações: gravadas na mesma transação da mudança, com `criada_em` = hora do módulo dessa mudança e `lida` false. Destinatário = (empresa, perfil): `comprador_id` com perfil comprador e `fornecedor_id` com perfil fornecedor. Transportadora e admin não recebem. Tipos, `titulo` (literal) e quem recebe: `COTACOES_DISPONIVEIS` "Cotações de frete disponíveis" (primeira cotação válida muda a solicitação para `COTADA`, RN-09) → comprador. `SEM_COTACAO` "Nenhuma transportadora cotou ainda" (RN-10) → os dois. `FRETE_ESCOLHIDO` "Frete escolhido" (RN-17 e RN-18) → fornecedor; também o comprador quando `escolhida_por` é `null` (rotina de prazos). `FRETE_INDISPONIVEL` "Frete indisponível" (RN-11, RN-24) → os dois. `TRANSPORTADORA_TROCADA` "Transportadora trocada" (RN-23) → os dois. `MOTORISTA_ESCALADO` "Motorista escalado" (`VIAGEM_ALOCADA`) → os dois. `COLETA_REALIZADA` "Carga coletada" → os dois. `PREVISAO_ATUALIZADA` "Previsão de chegada alterada" → comprador. `ENTREGA_REALIZADA` "Entrega realizada" → os dois. `OCORRENCIA` "Ocorrência na entrega" (API-15) → a outra parte (quem reportou não recebe). Cancelamento (RN-20), rastreio `POSICAO`, `PARADA` e `OCORRENCIA`, e ajuste do relógio não geram notificação. Uma mudança que não acontece (mensagem ignorada, gravação condicional que perde) não gera notificação. | CA-74 a CA-77. |
+| RN-33 | Ocorrência (API-15): só comprador ou fornecedor, numa entrega visível (RN-19) com status diferente de `CANCELADA` e `RECUSADA` (entrega `ENTREGUE` aceita: avaria descoberta na chegada). `descricao`: os espaços das pontas são retirados antes de contar; de 5 a 500 caracteres depois disso. Grava `autor_papel` = perfil e `ocorrida_em` = hora do módulo; marca `com_ocorrencia` true; notifica a outra parte (RN-32). A API-14 e o campo `ocorrencias` da API-10 listam todas, por `ocorrida_em` crescente, para qualquer status da entrega. | "  abc  " → 422; entrega `CANCELADA` → 409. CA-78, CA-79. |
+| RN-34 | Documentos (API-16): PDF gerado na hora com os dados atuais da entrega (API-09), em qualquer status, inclusive `CANCELADA` e `ENTREGUE`. Todo documento tem, no cabeçalho, "Portal B2B - <título>", "Nº <número>" e "Emitido em <hora do módulo, horário de Brasília> (hora do módulo)", e a marca d'água "DOCUMENTO DEMONSTRATIVO - SEM VALOR FISCAL". Títulos: `cte` "CT-e - Conhecimento de Transporte Eletrônico"; `romaneio` "Romaneio de carga"; `nota-fiscal` "Nota fiscal de venda"; `comprovante-coleta` "Comprovante de coleta". Número = `int(sha1("<tipo>:<id da entrega>") em hexadecimal, 8 primeiros dígitos) mod 1000000`, com 6 dígitos (zeros à esquerda): o mesmo documento tem sempre o mesmo número. Campos ainda vazios aparecem como "a definir" (placa, motorista) ou "-". `comprovante-coleta` só existe com `coletada_em` preenchido; antes → 409 `DOCUMENTO_INDISPONIVEL`. | E-1: cte 154995, romaneio 154205, nota-fiscal 448765, comprovante-coleta 600897. CA-80, CA-81. |
 
 ## 10. Catálogo de erros
 
@@ -1543,6 +1782,9 @@ Formato único (RFC 7807), com `Content-Type: application/problem+json`:
 | `SEM_COTACAO_PARA_ESCOLHER` | 409 | Solicitação `ABERTA` ou `SEM_COTACAO`. |
 | `SOLICITACAO_ENCERRADA` | 409 | Solicitação `CANCELADA` ou `INDISPONIVEL`. |
 | `PRAZO_DE_ESCOLHA_ENCERRADO` | 409 | Escolha por `cotacaoId` com `agora > prazo_decisao_em` (RN-12). |
+| `ENTREGA_ENCERRADA` | 409 | API-15 numa entrega `CANCELADA` ou `RECUSADA` (RN-33). |
+| `DOCUMENTO_INDISPONIVEL` | 409 | API-16 `comprovante-coleta` antes da coleta (RN-34). |
+| `NOTIFICACAO_NAO_ENCONTRADA` | 404 | API-18 de notificação inexistente, de outra empresa ou de outro perfil. |
 
 Respostas fora do catálogo, também em RFC 7807: rota inexistente → 404 com `codigo` `NAO_ENCONTRADO`; método não permitido → 405 com `codigo` `METODO_NAO_PERMITIDO`; falha não prevista → 500 com `codigo` `ERRO_INTERNO` e o `correlationId` para o suporte. `/docs` e `/openapi.json` ficam habilitados. A resposta 503 de `/health/ready` tem o corpo da API-02, não RFC 7807. Essas respostas não entram na conformidade.
 
@@ -1555,7 +1797,7 @@ Respostas fora do catálogo, também em RFC 7807: rota inexistente → 404 com `
 5. `Idempotency-Key` (só API-06) → 400.
 6. Replay de idempotência (só API-06) → 200 memorizado.
 7. Recurso visível → 404.
-8. Status da solicitação (só API-06) → 409.
+8. Status da solicitação (só API-06) → 409. Status da entrega (só API-15) → 409 `ENTREGA_ENCERRADA`. Coleta feita (só API-16 `comprovante-coleta`) → 409 `DOCUMENTO_INDISPONIVEL`.
 9. Prazo da escolha (só API-06 com `cotacaoId`) → 409.
 10. Cotação (só API-06 com `cotacaoId`) → 404.
 11. Gravação condicional (só API-06) → 409.
@@ -1574,6 +1816,7 @@ Respostas fora do catálogo, também em RFC 7807: rota inexistente → 404 com `
 | RNF-08 | Eficiência — uso de recursos | Pool limitado | No máximo 5 conexões abertas por cópia (`pg_stat_activity` com `usename = 'svc_logistica'` ≤ 10 com as duas cópias) durante o teste de carga | Inspeção — CA-70 |
 | RNF-09 | Manutenibilidade | Logs estruturados | 100% das linhas do stdout do serviço são JSON com `timestamp`, `level`, `service` e `message`; nenhum `print(` no código do serviço (os scripts de linha de comando de `comum/comum/ferramentas/` podem imprimir) | Inspeção — CA-71 |
 | RNF-10 | Portabilidade | Só as dependências permitidas (§5) | Nenhum `import` fora da biblioteca padrão, das dependências do §5, de `comum` e de `logistica` | Inspeção — CA-72 |
+| RNF-11 | Eficiência de desempenho e confiabilidade | Gravações com muitos pedidos ao mesmo tempo, pelo gateway | 10 pedidos novos por segundo durante 60 s, cada um com cotação, escolha da mais barata (API-06), espera da alocação e cancelamento: API-06 com p95 < 500 ms; do pedido às cotações com p95 < 20 s; 0 solicitação duplicada (API-04 com `pedido_id` devolve no máximo 1); menos de 1% de erros HTTP | `testes_carga/escrita.js` (k6) — CA-82 |
 
 ```gherkin
 # CA-63
@@ -1637,7 +1880,16 @@ Cenário: Logs
 Cenário: Dependências
   Ao inspecionar os imports dos arquivos .py de services/logistica-service/logistica e de comum/comum
   Então só há módulos da biblioteca padrão, das dependências do §5, de comum ou de logistica
+
+# CA-82
+Cenário: Carga de escrita
+  Dado o relógio em fator 1 e nenhum pedido "ped-k6-" em aberto
+  Quando o script testes_carga/escrita.js roda com TAXA=10 e DURACAO=60s
+  Então os limiares p(95)<500 de escolher e criar_pedido, p(95)<20000 de pedido_ate_cotacoes, count==0 de solicitacoes_duplicadas e http_req_failed rate<0.01 passam
+  E, ao fim, nenhum pedido "ped-k6-" tem solicitação aberta, entrega ativa ou viagem AGENDADA ou EM_TRANSITO
 ```
+
+O pedido de teste é criado pelo `pedidos-falso` (`POST /api/v1/pedidos-falso/pedidos`, só admin), que publica `pedido_criado` no Kafka como o grupo de Pedidos faria (D23). Essa rota é uma ferramenta de desenvolvimento, não deste serviço, e fica fora da conformidade. Com a frota do seed (7 caminhões de granel), parte das escolhas fica sem caminhão livre; isso não é erro (RN-23 e RN-24) e aparece nos contadores `sem_frota` e `sem_cotacao`. Resultado em 10/11/2026, ambiente recém-criado: 601 pedidos, API-06 com p95 de 9,7 ms, do pedido às cotações com p95 de 511 ms, 0 duplicada, 0% de erros.
 
 ## 12. Matriz de rastreabilidade
 
@@ -1647,7 +1899,7 @@ Cenário: Dependências
 | RF-02 | RN-07 a RN-09 | `cotacao_recebida`, API-05 | CA-09 a CA-13 |
 | RF-03 | RN-10 | Rotina de prazos | CA-14. Sem CA de erro: a rotina não recebe entrada do usuário |
 | RF-04 | RN-11 | Rotina de prazos, `frete_indisponivel` | CA-15 |
-| RF-05 | RN-19, RN-28 | API-04, API-05 | CA-16 a CA-20 |
+| RF-05 | RN-19, RN-28 | API-04, API-05 | CA-16 a CA-20, CA-73 |
 | RF-06 | RN-12, RN-14 a RN-17, RN-31 | API-06, `frete_selecionado` | CA-21 a CA-33 |
 | RF-07 | RN-13 a RN-17 | API-06 | CA-34 a CA-36. Erros compartilhados com RF-06 (CA-26 a CA-32) |
 | RF-08 | RN-13, RN-18 | Rotina de prazos, `frete_selecionado` | CA-37. Sem CA de erro: a rotina não recebe entrada; o conflito com o comprador está em CA-31 |
@@ -1659,7 +1911,11 @@ Cenário: Dependências
 | RF-14 | RN-27 | API-12, API-13, `relogio_ajustado` | CA-56 a CA-59 |
 | RF-15 | — | API-01 a API-03 | CA-60. Sem CA de erro: rotas públicas sem entrada |
 | RF-16 | RN-30 | Todos os tópicos consumidos, `logistica.dlt` | CA-61, CA-62 (e CA-02, CA-04, CA-05, CA-11, CA-43, CA-50) |
+| RF-17 | RN-28, RN-32 | API-17, API-18 (e as mudanças da RN-32) | CA-74 a CA-77 |
+| RF-18 | RN-19, RN-32, RN-33 | API-14, API-15, API-10 | CA-78, CA-79 |
+| RF-19 | RN-19, RN-34 | API-16 | CA-80, CA-81 |
 | RNF-01 a RNF-10 | — | Todas | CA-63 a CA-72 |
+| RNF-11 | — | API-04, API-06, API-11 | CA-82 |
 
 Os CAs do token (CA-20) são cobertos pelos testes unitários de `comum/tests/test_auth.py`, porque o QA não tem a chave privada da Autenticação para gerar tokens expirados ou com escopo inválido. Os atributos internos (`rodada_ate`, `correlation_id`, `ultima_sequencia`) não aparecem na API; são verificados pelo comportamento (CA-14, CA-22, CA-46).
 
@@ -1672,7 +1928,7 @@ Os CAs do token (CA-20) são cobertos pelos testes unitários de `comum/tests/te
 | Q-03 | Decisão (D5) | Quem escolhe o frete. | O comprador, em até 12 h, ou o botão automático; depois, a regra do kit. **Depende do professor (P2).** Se mudar, mudam RF-06, RF-07 e RN-12. |
 | Q-04 | Decisão (D12) | Tópicos `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` não existem no kit. | Usados como descritos. **Dependem da Infraestrutura (P3).** |
 | Q-05 | Decisão (D25) | Token e perfil de administrador. | RS256 do Identity-Service, com `iss` e `aud` conferidos; admin = `platform_role` `PLATFORM_ADMIN` (o administrador global do Identity-Service) ou a permissão `logistica:admin`; `TENANT_ADMIN` sozinho não acessa. Confirmado no código e no seed do Identity-Service (10/11/2026). |
-| Q-06 | Decisão | Escopo desta versão. | A v1.0 cobre o núcleo do fluxo do frete. Notificações, ocorrências e documentos em PDF entram na v1.1. |
+| Q-06 | Decisão | Escopo desta versão. | A v1.0 cobria o núcleo do fluxo do frete. Desde a v1.2, cobre também notificações (RF-17), ocorrências (RF-18) e documentos em PDF (RF-19): todas as rotas do serviço estão especificadas. |
 | Q-07 | Decisão | `PRAZO_DE_ESCOLHA_ENCERRADO` só aparece no intervalo entre o vencimento e a próxima volta da rotina de prazos (até 1 s); depois, a resposta é `FRETE_JA_ESCOLHIDO`. | O CA-31 aceita os dois códigos e confere o resultado final. |
 | Q-08 | Decisão | Corpo com JSON ilegível. | 422 `DADOS_INVALIDOS` antes da autenticação: o framework lê o corpo antes de resolver as dependências. |
 | Q-09 | Decisão | Recurso de outra empresa. | 404, não 403, para não revelar que existe (RN-16, RN-19). |
@@ -1686,7 +1942,7 @@ Q-03, Q-04, Q-05 e Q-11 têm decisão tomada e implementada; o que falta é a co
 
 | Caso de borda | Decisão |
 |---|---|
-| String vazia ou só com espaços em campos obrigatórios | No evento, string vazia é inválida pelo contrato (`minLength` 1) e vai à DLT; string só com espaços passa no contrato (o nome de cidade só com espaços não é encontrado e vai à DLT pela RN-01). Na API-06, `Idempotency-Key` só com espaços equivale a ausente (400). |
+| String vazia ou só com espaços em campos obrigatórios | No evento, string vazia é inválida pelo contrato (`minLength` 1) e vai à DLT; string só com espaços passa no contrato (o nome de cidade só com espaços não é encontrado e vai à DLT pela RN-01). Na API-06, `Idempotency-Key` só com espaços equivale a ausente (400). Na API-15, `descricao` só com espaços tem tamanho 0 depois de tirar as pontas → 422. |
 | Cabeçalho opcional presente porém vazio | `X-Correlation-Id` vazio equivale a ausente (o serviço gera um). |
 | Mensagem duplicada **e** inválida | Envelope ilegível ou incompleto: cada cópia vai à DLT. Payload inválido com envelope completo: a primeira vai à DLT e marca o `eventId`; as cópias são ignoradas. |
 | Campo de chave/ID com tipo inesperado | No evento, `pedidoId` ou `solicitacaoFreteId` numérico é inválido pelo contrato → DLT. Na rota, o id é sempre texto; id inexistente → 404. |
@@ -1718,6 +1974,7 @@ Q-03, Q-04, Q-05 e Q-11 têm decisão tomada e implementada; o que falta é a co
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.2 | 2026-11-10 | Grupo 5 | Todas as rotas do serviço especificadas: ocorrências (API-14, API-15, RF-18, RN-33), documentos em PDF (API-16, RF-19, RN-34) e notificações (API-17, API-18, RF-17, RN-32), com 3 códigos de erro novos (§10). Filtro `pedido_id` na API-04 (CA-73) e teste de carga de escrita (RNF-11, CA-82). Exemplos tirados de respostas reais do ambiente. Ao escrever, um defeito foi corrigido: uma ocorrência só com espaços (`"     "`) passava no mínimo de 5 caracteres e era gravada vazia; agora os espaços das pontas saem antes de contar (CA-79). CA-01 a CA-72 sem mudança. |
 | 1.1 | 2026-11-10 | Grupo 5 | Token conforme o código do Identity-Service: `iss` e `aud` conferidos (antes, todo token real seria recusado, porque o PyJWT recusa `aud` não esperado), admin pelo `platform_role` `PLATFORM_ADMIN` e 403 `CONTEXTO_NAO_SELECIONADO` para token sem empresa ou escopo (§7.1, §10, CA-20, Q-05). |
 | 1.0 | 2026-11-10 | Grupo 5 | Criação, a partir do serviço implementado (etapas 1 a 5) e de respostas reais capturadas no ambiente. Ao escrever as duas especificações, quatro defeitos foram corrigidos no código (explicação 07). Os que afetam este documento: `VIAGEM_ALOCADA` sem `posicao` passava no contrato (agora vai direto à DLT, CA-50) e fator do relógio com mais de 2 casas respondia 500 ou era gravado diferente do publicado (agora 422, CA-59). Os outros dois estão na ESP-TRP-001. |
 
