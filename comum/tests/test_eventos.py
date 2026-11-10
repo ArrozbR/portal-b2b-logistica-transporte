@@ -52,6 +52,27 @@ def test_pedido_fora_do_contrato(mudanca):
         validar_payload("pedido_criado", pedido_valido(**mudanca))
 
 
+def viagem_alocada(**mudancas) -> dict:
+    evento = {
+        "pedidoId": "ped-1", "entregaId": "ent-1", "transportadoraId": "transp-x", "sequencia": 1,
+        "tipo": "VIAGEM_ALOCADA", "descricao": "Motorista e veículo escalados.",
+        "ocorridoEm": "2026-11-10T12:05:00.300Z", "motorista": {"nome": "Ana"},
+        "veiculo": {"placa": "ABC1D23", "tipo": "CARRETA_SIDER"}, "rota": [[-12.5, -55.7], [-23.9, -46.3]],
+        "coletaPrevista": "2026-11-10T14:05:00.300Z", "previsaoChegada": "2026-11-18T17:00:00.000Z",
+        "posicao": {"lat": -12.5, "lon": -55.7},
+    }
+    evento.update(mudancas)
+    return {chave: valor for chave, valor in evento.items() if valor is not None}
+
+
+def test_viagem_alocada_exige_a_posicao_inicial():
+    # A logística grava a posição inicial do caminhão. Sem a posição no contrato, a
+    # mensagem passava pelas 3 retentativas antes de ir para a DLT, em vez de ir direto.
+    assert erros_do_payload("rastreio_atualizado", viagem_alocada()) == []
+    with pytest.raises(EventoInvalido, match="posicao"):
+        validar_payload("rastreio_atualizado", viagem_alocada(posicao=None))
+
+
 def test_script_de_pedido_falso_gera_pedido_dentro_do_contrato():
     # D23: o script não pode aceitar um pedido que o serviço recusaria
     from comum.ferramentas.publicar_pedido_falso import _local, montar_payload

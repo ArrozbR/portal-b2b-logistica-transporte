@@ -47,7 +47,7 @@
   },
   "allOf": [
     { "if": { "properties": { "tipo": { "const": "VIAGEM_ALOCADA" } } },
-      "then": { "required": ["motorista", "veiculo", "rota", "coletaPrevista", "previsaoChegada"] } },
+      "then": { "required": ["motorista", "veiculo", "rota", "coletaPrevista", "previsaoChegada", "posicao"] } },
     { "if": { "properties": { "tipo": { "const": "VIAGEM_RECUSADA" } } }, "then": { "required": ["motivo"] } },
     { "if": { "properties": { "tipo": { "const": "ENTREGA_REALIZADA" } } },
       "then": { "required": ["noPrazo", "atrasoHoras", "posicao"] } },
