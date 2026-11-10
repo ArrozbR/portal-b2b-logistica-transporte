@@ -64,6 +64,8 @@ O `pedido_criado` do kit não traz nada disso, e sem esses dados não há cotaç
 
 Uma cotação digitada é aceita enquanto o frete não foi escolhido. Depois da escolha, é recusada (409).
 
+Implementado na etapa 4: a transportadora de demonstração **Rodovia Sul** é real (não simulada) e só cota digitando, pela tela "Solicitações de frete" do mockup. As regras de validação estão na [arquitetura](02-arquitetura-proposta.md), seção 5.5.
+
 ### D4. Prazos da cotação
 
 **Decisão:**
@@ -91,6 +93,8 @@ O `frete_selecionado` informa o critério: `ESCOLHA_COMPRADOR` ou `AUTOMATICO_ME
 
 - **Cotações de um pedido lado a lado:** preço, preço por t·km, prazo, data prevista, validade, origem da cotação e pontualidade da transportadora, com os selos "mais barata", "mais rápida", "mais pontual" e "recomendada pela regra", e um gráfico preço × prazo.
 - **Ranking geral:** entregas feitas, % no prazo, atraso médio e preço médio por t·km, por transportadora e tipo de carga.
+
+Implementado na etapa 4: tela de comparação (cartões, selos, pontualidade, gráfico preço × prazo e escolha) e tela de ranking, com filtro por tipo de carga.
 
 ### D7. Transportadoras reais ou simuladas
 
@@ -121,7 +125,7 @@ Consequência para a apresentação: com o relógio acelerado (D18) para que os 
 - cadastro de motoristas e veículos (não existe no mockup; segue o mesmo estilo);
 - relógio do módulo (só administrador).
 
-Implementado na etapa 3: lista de entregas, rastreamento com mapa e relógio do módulo, servidos pelo contêiner `portal` (http://localhost:8088). O login dessas telas, no ambiente de desenvolvimento, vem do contêiner `usuarios-falso` (D23), que faz o papel do `usuarios-service`.
+Implementado na etapa 3: lista de entregas, rastreamento com mapa e relógio do módulo, servidos pelo contêiner `portal` (http://localhost:8088). Na etapa 4: solicitações e comparação (comprador), solicitações de frete e minha frota (transportadora), ranking, documentos e ocorrências. O menu muda conforme o perfil. O login dessas telas, no ambiente de desenvolvimento, vem do contêiner `usuarios-falso` (D23), que faz o papel do `usuarios-service`.
 
 ### D12. Fim e falha da entrega
 
@@ -195,6 +199,8 @@ Testado na etapa 3: três compradores escolheram a mesma transportadora, que tin
 ### D21. Documentos da entrega
 
 **Decisão:** CT-e, romaneio, nota fiscal e comprovante de coleta são **modelos demonstrativos** gerados pela logística com os dados reais da entrega, com a marca "documento demonstrativo, sem valor fiscal". Nota fiscal e CT-e reais são emitidos por fornecedor e transportadora junto à SEFAZ, o que está fora do escopo de qualquer grupo.
+
+Implementado na etapa 4: PDFs gerados na hora com a biblioteca `fpdf2` (nada é guardado), baixados pela tela de rastreamento. O comprovante de coleta só existe depois da coleta.
 
 ### D22. Avisos a comprador e fornecedor
 

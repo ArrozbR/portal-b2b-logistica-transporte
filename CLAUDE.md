@@ -13,7 +13,7 @@ Grupo 5 (Logística e Transporte) do **Portal B2B Distribuído**, trabalho da di
 
 Além do que o kit define (cotação e seleção de frete), o professor pediu **rastreio visual da entrega** e **comparação entre transportadoras**.
 
-**Situação:** etapas 1, 2 e 3 concluídas (fluxo do frete, escolha pelo comprador, relógio, notificações, cancelamento, motoristas e veículos, viagem simulada, telas de entregas e rastreamento). Próxima: etapa 4. As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
+**Situação:** etapas 1 a 4 concluídas (fluxo do frete, escolha pelo comprador, relógio, notificações, cancelamento, motoristas e veículos, viagem simulada, comparação, cotação digitada, ranking, documentos, ocorrências e todas as telas do mockup). Próxima: etapa 5 (testes distribuídos automatizados, relatório técnico, ensaio). As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
 
 O código é gerado por IA, com conhecimento do professor. Cada parte entregue precisa vir com um arquivo em `docs/explicacoes/` (D24): o que a parte faz, em linguagem simples; por que foi feita assim; e as perguntas que o professor pode fazer, com as respostas. O grupo não tem experiência com as ferramentas, então explique sem jargão.
 
@@ -96,7 +96,8 @@ Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com
   - `eventos.validar_payload(nome, payload)` com os JSON Schemas de `comum/comum/contratos/`.
 - `services/<servico>/<pacote>/`: `servico.py` (regras, recebe `conn`), `api.py` (rotas), `main.py` (montagem e rotinas). Regras puras ficam em módulos sem banco nem Kafka (`regras.py`, `cotacao.py`, `simulacao.py`) e têm teste unitário.
 - Reserva de recurso disputado entre as cópias (caminhão, motorista, escolha do frete): gravação condicional (`UPDATE ... WHERE <ainda livre>` e conferir `rowcount`), não `FOR UPDATE` em listas inteiras.
-- `frontend/`: telas estáticas (HTML, CSS, JS puro e Leaflet), servidas pelo contêiner `portal` (`infra/portal/`), que também faz o papel do gateway. `assets/portal.js` tem a sessão, a chamada à API (com erros RFC 7807), o relógio e o sino; cada página tem o seu `.js`. Não use `alert()`: use `Portal.avisoRapido`. Teste a sintaxe com `node --check`.
+- `frontend/`: telas estáticas (HTML, CSS, JS puro e Leaflet), servidas pelo contêiner `portal` (`infra/portal/`), que também faz o papel do gateway. `assets/portal.js` tem a sessão, a chamada à API (com erros RFC 7807), o relógio e o sino; cada página tem o seu `.js`. Não use `alert()` nem `confirm()`: use `Portal.avisoRapido` e `Portal.modal`. Arquivos com autenticação (PDF) são baixados com `Portal.baixar`. Cada página declara os perfis que a usam em `Portal.iniciar({ perfis })`. Teste a sintaxe com `node --check`.
+- Transportadora `simulada = TRUE` cota sozinha; `simulada = FALSE` (Rodovia Sul, no seed) só cota digitando (`cotar_manualmente`).
 - `services/<servico>/migracoes/NNN_*.sql`: DDL executado como `portal_ddl`; terminar com os GRANTs para o `svc_*`. Migrações só rodam com o volume do Postgres vazio (`docker compose down -v`).
 - Os boilerplates do kit não consomem Kafka, guardam dados em memória e têm os problemas listados em `docs/04-analise-do-kit.md`. Não copie código deles sem aplicar as correções.
 

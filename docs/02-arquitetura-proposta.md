@@ -176,6 +176,23 @@ Usada no botão "automático" e quando o prazo de 12 h vence (D5):
 
 Por transportadora e tipo de carga: entregas feitas, % no prazo, atraso médio, preço médio por t·km e quantas vezes venceu. Os números vêm das viagens simuladas.
 
+Implementado no `transportadoras-service` (`GET /ranking`), a partir das tabelas `viagem` (entregas, no prazo, atraso real) e `cotacao_emitida` (preço por t·km), ordenado pela pontualidade. A comparação de uma solicitação usa a cópia local da logística (`desempenho_transportadora`, seção 9.3), para não depender de uma chamada HTTP entre os serviços.
+
+### 5.5 Cotação digitada (D3)
+
+Uma transportadora **real** (`simulada = FALSE`) não cota sozinha: alguém da empresa cota pela tela "Solicitações de frete". Regras, conferidas no `transportadoras-service` (`cotar_manualmente`):
+
+| Regra | Erro |
+|---|---|
+| A empresa do usuário tem uma transportadora ativa, compatível com a carga e a rota | 403 |
+| A solicitação ainda está aberta: frete não escolhido, pedido não cancelado, prazo de decisão não vencido | 409 `SOLICITACAO_ENCERRADA` |
+| Uma cotação por transportadora e solicitação | 409 `COTACAO_JA_ENVIADA` |
+| Entrega pelo menos um dia útil depois da coleta (o prazo em dias úteis é calculado da data) | 422 `PRAZO_INVALIDO` |
+| Validade da proposta depois da hora do módulo | 422 `VALIDADE_INVALIDA` |
+| Motorista e veículo livres e compatíveis (D20) | 422 `SEM_FROTA_LIVRE` |
+
+A cotação sai como `cotacao_recebida` com `origemCotacao: DIGITADA`, pelo mesmo caminho das simuladas. O `transportadoras-service` sabe que a solicitação encerrou porque consome `frete_selecionado` (e sabe quem venceu) e `pedido_atualizado`.
+
 ### 5.4 Motor de cotação simulada
 
 ```
@@ -307,7 +324,9 @@ As notificações ficam na tabela `notificacao` da logística, gravadas na mesma
 
 ### 8.2 Documentos (D21)
 
-Gerados sob demanda pela logística, em PDF, com os dados reais da entrega e a marca "documento demonstrativo, sem valor fiscal": CT-e, romaneio de carga, nota fiscal e comprovante de coleta. O comprovante de coleta só fica disponível depois da coleta.
+Gerados sob demanda pela logística, em PDF, com os dados reais da entrega e a marca "documento demonstrativo, sem valor fiscal": CT-e, romaneio de carga, nota fiscal e comprovante de coleta. O comprovante de coleta só fica disponível depois da coleta (antes disso, 409 `DOCUMENTO_INDISPONIVEL`).
+
+Implementado em `logistica/documentos.py` com a biblioteca `fpdf2`. O número de cada documento é fictício e estável (derivado do id da entrega), e a emissão usa a hora do módulo. Nada é guardado: o PDF é gerado a cada pedido.
 
 ## 9. Modelo de dados
 
@@ -364,7 +383,8 @@ Todas as rotas exigem JWT. Listagens têm `?page=1&size=10` (`size > 100` → 42
 | `GET /api/v1/logistica/entregas/{id}` | idem | Resumo: status, progresso, previsão, transportadora, motorista, veículo, carga |
 | `GET /api/v1/logistica/entregas/{id}/rastreio` | idem | Rota, posição e linha do tempo. É o que a tela consulta a cada 5 s |
 | `GET /api/v1/logistica/pedidos/{pedidoId}/entrega` | idem | Entrega atual do pedido |
-| `POST /api/v1/logistica/entregas/{id}/ocorrencias` | comprador, fornecedor | "Reportar ocorrência" |
+| `POST /api/v1/logistica/entregas/{id}/ocorrencias` | comprador, fornecedor | "Reportar ocorrência"; avisa a outra parte do pedido |
+| `GET /api/v1/logistica/entregas/{id}/ocorrencias` | comprador, fornecedor (a sua), admin | Ocorrências da entrega (também vêm no rastreio) |
 | `GET /api/v1/logistica/entregas/{id}/documentos/{tipo}` | comprador, fornecedor (a sua), admin | PDF demonstrativo: `cte`, `romaneio`, `nota-fiscal`, `comprovante-coleta` |
 | `GET /api/v1/logistica/notificacoes` | todos (as suas) | Notificações, com filtro `lida` |
 | `PATCH /api/v1/logistica/notificacoes/{id}` | todos (as suas) | Marca como lida |
@@ -378,8 +398,9 @@ Todas as rotas exigem JWT. Listagens têm `?page=1&size=10` (`size > 100` → 42
 | `GET /api/v1/transportadoras` | todos | Lista transportadoras homologadas |
 | `GET /api/v1/transportadoras/{id}` | todos | Detalhe com perfil operacional e indicadores |
 | `PUT /api/v1/transportadoras/{id}/perfil-operacional` | transportadora (a própria), admin | Tipos de carga, UFs e tabela de preços |
-| `GET /api/v1/transportadoras/ranking` | todos | Ranking, com filtro por tipo de carga |
-| `GET /api/v1/transportadoras/solicitacoes` | transportadora | Cargas compatíveis abertas para cotação |
+| `GET /api/v1/transportadoras/minha` | transportadora | A transportadora da empresa do usuário |
+| `GET /api/v1/transportadoras/ranking` | todos | Ranking: entregas, % no prazo, atraso médio, preço médio por t·km e vezes escolhida, com filtro por tipo de carga |
+| `GET /api/v1/transportadoras/solicitacoes` | transportadora | Cargas compatíveis abertas para cotação, mais as que ela cotou (com a situação: aceitando, enviada, venceu, outra venceu, encerrada) |
 | `POST /api/v1/transportadoras/solicitacoes/{id}/cotacoes` | transportadora | Cotação digitada. 409 se o frete já foi escolhido; 422 se não houver motorista ou veículo livre e compatível |
 | `GET`, `POST`, `PUT`, `DELETE /api/v1/transportadoras/{id}/motoristas` | transportadora (a própria), admin | Cadastro de motoristas |
 | `GET`, `POST`, `PUT`, `DELETE /api/v1/transportadoras/{id}/veiculos` | transportadora (a própria), admin | Cadastro de veículos |
