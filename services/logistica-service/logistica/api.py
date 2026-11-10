@@ -9,6 +9,7 @@
 
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Response
@@ -82,7 +83,10 @@ class NovaOcorrencia(BaseModel):
 
 
 class AjusteDoRelogio(BaseModel):
-    fator: float = Field(..., gt=0, le=100000, description="1 = tempo real; 360 = 3 dias em 12 minutos")
+    # Decimal com 2 casas: é como o banco guarda (NUMERIC(10,2)). Com float, 0.001 virava 0.00
+    # no banco (500) e 1.234 era publicado no relogio_ajustado mas lido como 1.23.
+    fator: Decimal = Field(..., gt=0, le=100000, decimal_places=2,
+                           description="1 = tempo real; 360 = 3 dias em 12 minutos (até 2 casas decimais)")
     avancarHoras: float = Field(0, ge=0, le=24 * 60, description="Adianta o relógio do módulo (opcional)")
 
 
@@ -440,7 +444,8 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                 summary="Acelera, desacelera ou adianta o relógio do módulo (só administrador)")
     async def ajustar_relogio(corpo: AjusteDoRelogio, usuario: Usuario = Depends(exigir_perfis("admin"))):
         async with db.transacao() as conn:
-            novo = await logistica.ajustar_relogio(conn, corpo.fator, timedelta(hours=corpo.avancarHoras), usuario.id)
+            novo = await logistica.ajustar_relogio(conn, float(corpo.fator), timedelta(hours=corpo.avancarHoras),
+                                                   usuario.id)
         logistica.relogio.invalidar()
         return {"horaDoModulo": iso(novo.base_virtual), "horaReal": iso(novo.base_real),
                 "fator": novo.fator, "versao": novo.versao}

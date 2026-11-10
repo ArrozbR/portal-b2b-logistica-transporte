@@ -28,6 +28,19 @@ def test_fator_do_relogio_precisa_ser_positivo():
         AjusteDoRelogio(fator=0)
 
 
+@pytest.mark.parametrize("corpo, aceito", [
+    ('{"fator": 0.07}', True), ('{"fator": 100000}', True),
+    ('{"fator": 0.001}', False), ('{"fator": 1.234}', False), ('{"fator": 100000.01}', False),
+])
+def test_fator_do_relogio_tem_no_maximo_duas_casas(corpo, aceito):
+    # O banco guarda o fator como NUMERIC(10,2): 0.001 virava 0.00 (500) e 1.234 era lido como 1.23.
+    if aceito:
+        assert AjusteDoRelogio.model_validate_json(corpo).fator == Decimal(corpo.split(": ")[1].rstrip("}"))
+    else:
+        with pytest.raises(ValidationError):
+            AjusteDoRelogio.model_validate_json(corpo)
+
+
 def test_textos_das_notificacoes():
     titulo, mensagem = texto_cotacoes_disponiveis("ped-1", PRAZO)
     assert titulo == "Cotações de frete disponíveis"
