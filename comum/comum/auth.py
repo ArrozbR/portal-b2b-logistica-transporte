@@ -5,8 +5,13 @@ O algoritmo vem da configuração, nunca do próprio token:
 - RS256 (padrão): o token do grupo de Autenticação. É assinado com uma chave
   RSA privada, que só a Autenticação tem; a chave pública de cada `kid` vem do
   JWKS (`AUTH_JWKS_URL`, normalmente `/.well-known/jwks.json` pelo gateway),
-  guardada em cache por 1 hora. Claims: `sub`, `tenant_id`, `active_scope`
-  (BUYER, SUPPLIER, CARRIER, TENANT_ADMIN), `permissions` e `exp`.
+  guardada em cache por 1 hora. Claims: `sub`, `iss` (`identity-service`),
+  `aud` (`b2b-platform`), `exp`, `platform_role` (NONE, SUPPORT_AGENT,
+  PLATFORM_ADMIN), `view_mode` (NONE, SINGLE, MACRO_GROUP), `tenant_id`,
+  `active_scope` (BUYER, SUPPLIER, CARRIER, TENANT_ADMIN) e `permissions`
+  (código do Identity-Service, `TokenIssuer.cs`). `iss` e `aud` são conferidos
+  (`JWT_ISSUER`, `JWT_AUDIENCE`): o PyJWT recusa um token com `aud` se a
+  audiência esperada não for informada.
 - HS256 (`JWT_ALGORITHM=HS256`): o formato do kit, com a chave compartilhada
   `JWT_SECRET_KEY` e os claims `sub`, `empresaId` (ou `empresa_id`), `perfil`
   e `exp`. Fica para rodar com o kit enquanto ele não for atualizado.
@@ -18,11 +23,13 @@ Os dois formatos viram os perfis do módulo:
 | `active_scope` BUYER | comprador |
 | `active_scope` SUPPLIER | fornecedor |
 | `active_scope` CARRIER | transportadora |
-| permissão `logistica:admin` | admin (administrador da plataforma) |
-| `active_scope` TENANT_ADMIN, sem a permissão | 403: administra a empresa, não o módulo |
+| `platform_role` PLATFORM_ADMIN (ou permissão `logistica:admin`) | admin (administrador da plataforma) |
+| `active_scope` TENANT_ADMIN, sem ser administrador da plataforma | 403: administra a empresa, não o módulo |
+| Sem empresa ou sem escopo ativo (`view_mode` NONE, logo depois do login, ou MACRO_GROUP) | 403 `CONTEXTO_NAO_SELECIONADO`: a tela deve chamar o switch-context |
 
 O admin do módulo vê as entregas de todas as empresas e mexe no relógio, por
-isso não basta ser administrador de uma empresa.
+isso não basta ser administrador de uma empresa. O administrador da plataforma
+não precisa ter escolhido uma empresa.
 
 - Sem token, token inválido ou expirado: 401.
 - Perfil sem permissão para a rota: 403.
@@ -48,8 +55,11 @@ PERFIS = ("comprador", "fornecedor", "transportadora", "admin")
 ALGORITMOS = ("RS256", "HS256")
 ESCOPOS = {"BUYER": "comprador", "SUPPLIER": "fornecedor", "CARRIER": "transportadora"}
 ESCOPO_ADMIN_DA_EMPRESA = "TENANT_ADMIN"
-PERMISSAO_ADMIN = "logistica:admin"
+ADMIN_DA_PLATAFORMA = "PLATFORM_ADMIN"  # claim platform_role do Identity-Service
+PERMISSAO_ADMIN = "logistica:admin"     # alternativa, proposta nossa (D25)
 JWKS_PADRAO = "http://gateway:8080/.well-known/jwks.json"  # o endereço que a Autenticação indicou
+EMISSOR_PADRAO = "identity-service"     # JWT_ISSUER do Identity-Service
+AUDIENCIA_PADRAO = "b2b-platform"       # JWT_AUDIENCE do Identity-Service
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -103,14 +113,18 @@ def _chave(token: str, alg: str):
 
 
 def _usuario(claims: dict) -> Usuario:
-    if "active_scope" in claims:  # formato do grupo de Autenticação
-        empresa = claims.get("tenant_id")
-        if not isinstance(empresa, str) or not empresa:
-            raise _invalido("O token não informa a empresa (tenant_id).")
-        permissoes = claims.get("permissions")
+    if algoritmo() == "RS256":  # formato do grupo de Autenticação
+        empresa = claims.get("tenant_id") or None
         escopo = claims.get("active_scope")
-        if isinstance(permissoes, list) and PERMISSAO_ADMIN in permissoes:
-            perfil = "admin"
+        permissoes = claims.get("permissions")
+        if claims.get("platform_role") == ADMIN_DA_PLATAFORMA or (
+                isinstance(permissoes, list) and PERMISSAO_ADMIN in permissoes):
+            perfil = "admin"  # não precisa ter escolhido uma empresa
+        elif not isinstance(empresa, str) or not escopo:
+            # Token do login (view_mode NONE) ou de grupo (MACRO_GROUP): o módulo trabalha com uma empresa só.
+            raise Problema(403, "CONTEXTO_NAO_SELECIONADO", "Empresa e perfil não escolhidos",
+                           "Escolha a empresa e o escopo (BUYER, SUPPLIER ou CARRIER) pela troca de contexto "
+                           "(POST /api/v1/auth/switch-context, view_mode SINGLE) antes de usar o módulo.")
         elif escopo == ESCOPO_ADMIN_DA_EMPRESA:
             raise Problema(403, "PERFIL_NAO_PERMITIDO", "Acesso negado",
                            "O escopo TENANT_ADMIN administra a empresa e não usa o módulo de logística. "
@@ -130,9 +144,17 @@ def decodificar(token: str) -> Usuario:
     alg = algoritmo()
     chave = _chave(token, alg)
     try:
-        claims = jwt.decode(token, chave, algorithms=[alg], options={"require": ["exp", "sub"]})
+        if alg == "RS256":
+            claims = jwt.decode(token, chave, algorithms=[alg],
+                                issuer=config.texto("JWT_ISSUER", EMISSOR_PADRAO),
+                                audience=config.texto("JWT_AUDIENCE", AUDIENCIA_PADRAO),
+                                options={"require": ["exp", "sub", "iss", "aud"]})
+        else:  # o token do kit não tem iss nem aud
+            claims = jwt.decode(token, chave, algorithms=[alg], options={"require": ["exp", "sub"]})
     except jwt.ExpiredSignatureError:
         raise Problema(401, "TOKEN_EXPIRADO", "Token expirado", "O token de acesso expirou. Faça login de novo.")
+    except (jwt.InvalidAudienceError, jwt.InvalidIssuerError):
+        raise _invalido("O token não foi emitido pelo serviço de Autenticação para o portal (iss ou aud).")
     except jwt.InvalidTokenError:
         raise _invalido()
     return _usuario(claims)

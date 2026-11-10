@@ -2,8 +2,9 @@
 
 O login de verdade é do grupo de Autenticação. Para as telas poderem ser
 usadas e demonstradas sem ele, este serviço entrega tokens no mesmo formato
-que a Autenticação definiu (D25): RS256, com `kid` no cabeçalho, e os claims
-`sub`, `tenant_id`, `active_scope`, `roles`, `permissions` e `exp`. A chave
+do Identity-Service (D25, `TokenIssuer.cs`): RS256, com `kid` no cabeçalho, e os
+claims `sub`, `iss`, `aud`, `platform_role`, `view_mode`, `tenant_id`,
+`active_scope`, `roles`, `permissions` e `exp`, como depois do switch-context. A chave
 pública fica em `/.well-known/jwks.json`, como no serviço real, e os nossos
 serviços a buscam de lá.
 
@@ -30,7 +31,7 @@ from jwt.algorithms import RSAAlgorithm
 from pydantic import BaseModel, Field
 
 from comum import config
-from comum.auth import ESCOPOS, PERFIS, PERMISSAO_ADMIN, algoritmo
+from comum.auth import ADMIN_DA_PLATAFORMA, AUDIENCIA_PADRAO, EMISSOR_PADRAO, ESCOPOS, PERFIS, algoritmo
 from comum.erros import Problema, registrar_tratadores
 
 # O kit usa 15 min; aqui são 8 h para a demonstração não expirar no meio.
@@ -50,7 +51,7 @@ USUARIOS = [
 ]
 
 # Perfil do módulo → escopo da Autenticação. O admin da plataforma entra como
-# TENANT_ADMIN da empresa do portal, com a permissão logistica:admin.
+# TENANT_ADMIN da empresa do portal, com platform_role PLATFORM_ADMIN.
 ESCOPO_DO_PERFIL = {perfil: escopo for escopo, perfil in ESCOPOS.items()} | {"admin": "TENANT_ADMIN"}
 
 _CHAVE_PRIVADA = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -68,12 +69,22 @@ def emitir_token(usuario_id: str, empresa_id: str, perfil: str, segundos: int = 
         claims = {"sub": usuario_id, "empresaId": empresa_id, "perfil": perfil,
                   "iat": agora, "exp": agora + segundos, "type": "access"}
         return jwt.encode(claims, config.texto("JWT_SECRET_KEY"), algorithm="HS256")
+    # Mesmos claims do Identity-Service (TokenIssuer.cs), depois do switch-context (view_mode SINGLE).
+    # O admin é o administrador da plataforma (platform_role PLATFORM_ADMIN), como o
+    # platform-admin@agrobrasil.com.br do seed deles.
     claims = {
+        "jti": str(uuid.uuid4()),
         "sub": usuario_id,
+        "iss": config.texto("JWT_ISSUER", EMISSOR_PADRAO),
+        "aud": config.texto("JWT_AUDIENCE", AUDIENCIA_PADRAO),
+        "platform_role": ADMIN_DA_PLATAFORMA if perfil == "admin" else "NONE",
+        "view_mode": "SINGLE",
+        "group_id": f"grupo-{empresa_id}",
         "tenant_id": empresa_id,
+        "allowed_tenants": [empresa_id],
         "active_scope": ESCOPO_DO_PERFIL[perfil],
         "roles": [],
-        "permissions": [PERMISSAO_ADMIN] if perfil == "admin" else [],
+        "permissions": [],
         "iat": agora,
         "exp": agora + segundos,
     }
