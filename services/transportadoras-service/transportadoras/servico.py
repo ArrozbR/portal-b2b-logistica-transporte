@@ -255,6 +255,13 @@ class Transportadoras:
                                       (frete["solicitacaoFreteId"],))
         if solicitacao is None:
             raise EventoInvalido(f"Solicitação desconhecida: {frete['solicitacaoFreteId']}")
+        if solicitacao["cancelada"]:
+            # pedido_atualizado e frete_selecionado são tópicos diferentes, sem ordem entre eles:
+            # o cancelamento pode chegar antes. Escalar agora prenderia caminhão e motorista
+            # numa viagem de pedido cancelado.
+            log.info("Frete de pedido já cancelado; nenhuma viagem agendada",
+                     extra={"dados": {"pedidoId": frete["pedidoId"], "entregaId": frete["entregaId"]}})
+            return "pedido_cancelado"
 
         agora = await self.relogio.agora(conn)
         id_correlacao = envelope.get("correlationId")
