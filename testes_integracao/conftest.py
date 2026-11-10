@@ -11,7 +11,7 @@ nos tópicos do Kafka. Se o ambiente não estiver no ar, são pulados.
 import httpx
 import pytest
 
-from apoio import COPIAS_LOGISTICA, COPIAS_TRANSPORTADORAS, PORTAL
+from apoio import COPIAS_LOGISTICA, COPIAS_TRANSPORTADORAS, PORTAL, limpar_pedidos_de_teste
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -24,6 +24,14 @@ def ambiente_no_ar():
         pytest.skip("Ambiente fora do ar. Rode: docker compose up -d --build")
     if prontos != [200, 200, 200, 200]:
         pytest.skip(f"Alguma cópia não está pronta: {prontos}")
+
+
+@pytest.fixture(autouse=True)
+def sem_pedidos_de_teste_em_aberto(ambiente_no_ar):
+    """Cada teste começa e termina sem pedidos de teste em andamento (frota toda livre)."""
+    limpar_pedidos_de_teste()
+    yield
+    limpar_pedidos_de_teste()
 
 
 @pytest.fixture(scope="session")

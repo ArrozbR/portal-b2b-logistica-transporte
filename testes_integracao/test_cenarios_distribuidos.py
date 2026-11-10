@@ -8,6 +8,8 @@ serviço no ar, e conferem o resultado no banco e nos tópicos do Kafka.
    prazo vencendo, geram um único frete_selecionado.
 3. Uma cópia caindo no meio da viagem: a outra assume, e a sequência de
    rastreio não tem buraco nem repetição.
+4. Mensagens fora de ordem entre tópicos: o cancelamento do pedido chega às
+   transportadoras antes do frete_selecionado, e nenhuma viagem é agendada.
 """
 
 import asyncio
@@ -17,7 +19,7 @@ import uuid
 import httpx
 
 from apoio import (COPIAS_LOGISTICA, COPIAS_TRANSPORTADORAS, PORTAL, consultar, docker_compose, esperar,
-                   mensagens_do_topico, metrica, publicar_pedido)
+                   mensagens_do_topico, metrica, publicar, publicar_pedido)
 
 
 def solicitacao_cotada(pedido_id: str, cotacoes: int = 3) -> str | None:
@@ -147,3 +149,37 @@ def test_copia_caindo_no_meio_da_viagem(api, entrar, relogio):
     assert consultar("SELECT count(*) AS n FROM logistica.outbox WHERE topico = 'entrega_concluida' AND chave = %s",
                      (pedido_id,))[0]["n"] == 1
     assert len(mensagens_do_topico("entrega_concluida", pedido_id)) >= 1
+
+
+# --------------------------------------------------------------------------- 4. fora de ordem entre tópicos
+
+def test_cancelamento_antes_do_frete_selecionado_nao_prende_caminhao():
+    """pedido_atualizado e frete_selecionado são tópicos diferentes, sem ordem entre eles.
+
+    Se o comprador escolhe o frete e o pedido é cancelado logo em seguida, as
+    transportadoras podem receber o cancelamento primeiro. A escala que vem
+    depois não pode agendar viagem, senão caminhão e motorista ficam presos.
+    """
+    pedido_id = publicar_pedido()["aggregateId"]
+    solicitacao_id = esperar(lambda: solicitacao_cotada(pedido_id), mensagem="solicitação não ficou COTADA")
+    cotacao = consultar("SELECT id, transportadora_id, preco, prazo_dias FROM logistica.cotacao "
+                        "WHERE solicitacao_id = %s ORDER BY preco LIMIT 1", (solicitacao_id,))[0]
+
+    publicar("pedido_atualizado", {"pedidoId": pedido_id, "status": "CANCELADO"}, pedido_id)
+    esperar(lambda: consultar("SELECT cancelada FROM transportadoras.solicitacao_recebida WHERE id = %s",
+                              (solicitacao_id,))[0]["cancelada"], segundos=15,
+            mensagem="as transportadoras não registraram o cancelamento")
+
+    # O frete_selecionado que saiu antes do cancelamento, mas chegou depois.
+    entrega_id = str(uuid.uuid4())
+    atrasado = publicar("frete_selecionado", {
+        "pedidoId": pedido_id, "solicitacaoFreteId": solicitacao_id, "entregaId": entrega_id, "tentativa": 1,
+        "cotacaoId": cotacao["id"], "transportadoraId": cotacao["transportadora_id"],
+        "preco": float(cotacao["preco"]), "prazoDias": cotacao["prazo_dias"],
+        "criterio": "AUTOMATICO_MENOR_PRECO", "status": "FRETE_SELECIONADO"}, pedido_id)
+
+    esperar(lambda: consultar("SELECT 1 FROM transportadoras.processed_events WHERE event_id = %s",
+                              (atrasado["eventId"],)), segundos=15, mensagem="o frete_selecionado não foi processado")
+    assert not consultar("SELECT 1 FROM transportadoras.viagem WHERE entrega_id = %s", (entrega_id,))
+    assert consultar("SELECT status FROM logistica.solicitacao_frete WHERE id = %s",
+                     (solicitacao_id,))[0]["status"] == "CANCELADA"

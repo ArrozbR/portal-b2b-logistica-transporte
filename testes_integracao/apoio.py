@@ -44,7 +44,7 @@ CONNINFO = (f"host=localhost port=15432 dbname=portal_b2b user=portal_admin "
 
 # ------------------------------------------------------------------ banco
 
-def consultar(sql: str, parametros: tuple = ()) -> list[dict]:
+def consultar(sql: str, parametros: tuple | dict = ()) -> list[dict]:
     with psycopg.connect(CONNINFO, row_factory=dict_row) as conn:
         return conn.execute(sql, parametros).fetchall()
 
@@ -56,15 +56,23 @@ def executar(sql: str, parametros: tuple = ()) -> None:
 
 # ------------------------------------------------------------------ Kafka
 
-async def _publicar(topico: str, envelope: dict, vezes: int) -> None:
+async def _publicar(topico: str, envelope: dict | list[dict], vezes: int = 1) -> None:
     produtor = AIOKafkaProducer(bootstrap_servers=KAFKA, acks="all", enable_idempotence=True)
     await produtor.start()
     try:
-        corpo = json.dumps(envelope).encode()
-        for _ in range(vezes):
-            await produtor.send_and_wait(topico, corpo, key=envelope["aggregateId"].encode())
+        for item in envelope if isinstance(envelope, list) else [envelope]:
+            corpo = json.dumps(item).encode()
+            for _ in range(vezes):
+                await produtor.send_and_wait(topico, corpo, key=item["aggregateId"].encode())
     finally:
         await produtor.stop()
+
+
+def publicar(topico: str, payload: dict, chave: str) -> dict:
+    """Publica um evento qualquer (envelope do kit) e devolve o envelope."""
+    envelope = montar_envelope(topico, "testes-integracao", chave, payload)
+    asyncio.run(_publicar(topico, envelope))
+    return envelope
 
 
 def publicar_pedido(pedido_id: str | None = None, vezes: int = 1, **mudancas) -> dict:
@@ -72,7 +80,7 @@ def publicar_pedido(pedido_id: str | None = None, vezes: int = 1, **mudancas) ->
     pedido_id = pedido_id or f"ped-it-{uuid.uuid4().hex[:8]}"
     payload = {
         "pedidoId": pedido_id, "compradorId": "emp-comprador-1", "fornecedorId": "emp-fornecedor-1",
-        "produtoId": "prod-soja", "produtoNome": "Soja em grão", "quantidade": 24000, "unidade": "KG",
+        "produtoId": "prod-soja", "fornecimentoId": "forn-soja-1", "produtoNome": "Soja em grão", "quantidade": 24000, "unidade": "KG",
         "pesoKg": 24000, "tipoTransporte": "GRANEL", "valorTotal": 192000.0,
         "origem": {"cidade": "Sorriso", "uf": "MT"}, "destino": {"cidade": "Santos", "uf": "SP"},
         **mudancas,
@@ -109,6 +117,42 @@ def mensagens_do_topico(topico: str, chave: str | None = None) -> list[dict]:
     """Todos os envelopes do tópico, do começo ao fim, filtrados pela chave da mensagem."""
     return [json.loads(m.value) for m in asyncio.run(_ler(topico))
             if chave is None or (m.key and m.key.decode() == chave)]
+
+
+# ------------------------------------------------------------------ limpeza entre testes
+
+PEDIDO_DE_TESTE = "ped-it-%"
+
+
+def pedidos_de_teste_em_aberto() -> list[str]:
+    """Pedidos dos testes com cotação ou entrega ainda em andamento."""
+    return [r["pedido_id"] for r in consultar("""
+        SELECT pedido_id FROM logistica.solicitacao_frete
+         WHERE pedido_id LIKE %(p)s AND status IN ('ABERTA', 'COTADA', 'SEM_COTACAO')
+        UNION
+        SELECT pedido_id FROM logistica.entrega
+         WHERE pedido_id LIKE %(p)s AND status IN ('AGUARDANDO_ALOCACAO', 'AGUARDANDO_COLETA', 'EM_TRANSITO')
+        UNION
+        SELECT pedido_id FROM transportadoras.viagem
+         WHERE pedido_id LIKE %(p)s AND status IN ('AGENDADA', 'EM_TRANSITO')
+    """, {"p": PEDIDO_DE_TESTE})]
+
+
+def limpar_pedidos_de_teste() -> None:
+    """Cancela os pedidos de teste que ficaram em aberto, como o grupo de Pedidos faria.
+
+    Sem isso, um teste interfere no seguinte: ao acelerar o relógio, o prazo de
+    12 h das solicitações que sobraram vence, a regra automática escolhe a mais
+    barata e o caminhão dela fica ocupado, e o teste seguinte recebe menos cotações.
+    """
+    abertos = pedidos_de_teste_em_aberto()
+    if not abertos:
+        return
+    asyncio.run(_publicar("pedido_atualizado", [
+        montar_envelope("pedido_atualizado", "testes-integracao", p, {"pedidoId": p, "status": "CANCELADO"})
+        for p in abertos]))
+    esperar(lambda: not pedidos_de_teste_em_aberto(), segundos=60, intervalo=1,
+            mensagem=f"os pedidos de teste {abertos} não foram cancelados")
 
 
 # ------------------------------------------------------------------ utilitários
