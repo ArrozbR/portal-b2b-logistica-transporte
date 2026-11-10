@@ -22,6 +22,9 @@ def carga(**mudancas):
     ({"minha_cotacao_id": "c1", "status": "ENCERRADA", "transportadora_vencedora_id": "outra"}, "OUTRA_VENCEU"),
     ({"status": "ENCERRADA", "transportadora_vencedora_id": "outra"}, "ENCERRADA"),
     ({"status": "ENCERRADA", "cancelada": True}, "CANCELADA"),
+    # cancelado depois da escolha: não aparece como "Você venceu"
+    ({"minha_cotacao_id": "c1", "status": "ENCERRADA", "transportadora_vencedora_id": "eu", "cancelada": True},
+     "CANCELADA"),
     ({"prazo_decisao_em": AGORA - timedelta(minutes=1)}, "ENCERRADA"),
 ])
 def test_situacao_da_carga_para_a_transportadora(mudancas, esperado):

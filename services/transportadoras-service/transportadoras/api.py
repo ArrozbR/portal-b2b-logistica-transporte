@@ -6,11 +6,13 @@
 """
 
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, status
+from psycopg import errors
 from pydantic import BaseModel, Field, field_validator
 
 from comum.auth import Usuario, exigir_perfis
@@ -109,16 +111,39 @@ SQL_RANKING = """
 """
 
 
+def _cnh_duplicada() -> Problema:
+    return Problema(409, "MOTORISTA_DUPLICADO", "Motorista já cadastrado",
+                    "Já existe um motorista com essa CNH nesta transportadora.")
+
+
+def _placa_duplicada(placa: str) -> Problema:
+    return Problema(409, "PLACA_DUPLICADA", "Placa já cadastrada", f"Já existe um veículo com a placa {placa}.")
+
+
+@contextmanager
+def _sem_duplicidade(erro: Problema):
+    """Duas gravações da mesma CNH ou placa ao mesmo tempo: a segunda esbarra na
+    restrição UNIQUE do banco. Sem isto, ela recebia 500 em vez de 409."""
+    try:
+        yield
+    except errors.UniqueViolation:
+        raise erro from None
+
+
 def situacao_da_carga(linha: dict, transportadora_id: str, agora: datetime) -> str:
-    """Como a carga aparece para a transportadora na tela "Solicitações de frete"."""
+    """Como a carga aparece para a transportadora na tela "Solicitações de frete".
+
+    O cancelamento vem primeiro: um pedido cancelado depois da escolha (ou cujo
+    frete_selecionado chegou depois do cancelamento) não deve aparecer como "Você venceu".
+    """
     cotou = linha["minha_cotacao_id"] is not None
     vencedora = linha["transportadora_vencedora_id"]
+    if linha["cancelada"]:
+        return "CANCELADA"
     if vencedora:
         if vencedora == transportadora_id:
             return "VENCEU"
         return "OUTRA_VENCEU" if cotou else "ENCERRADA"
-    if linha["cancelada"]:
-        return "CANCELADA"
     if linha["status"] == "ABERTA" and linha["prazo_decisao_em"] > agora:
         return "COTACAO_ENVIADA" if cotou else "ACEITANDO_COTACOES"
     return "ENCERRADA"
@@ -252,14 +277,14 @@ def criar_rotas(db: BancoDeDados, servico: Transportadoras) -> APIRouter:
             await conferir_dono(conn, transportadora_id, usuario)
             if await buscar_um(conn, "SELECT 1 FROM transportadoras.motorista WHERE transportadora_id = %s "
                                      "AND cnh_numero = %s", (transportadora_id, dados.cnhNumero)):
-                raise Problema(409, "MOTORISTA_DUPLICADO", "Motorista já cadastrado",
-                               "Já existe um motorista com essa CNH nesta transportadora.")
-            linha = await buscar_um(conn, f"""
-                INSERT INTO transportadoras.motorista (id, transportadora_id, nome, telefone, cnh_numero,
-                                                       cnh_categoria, cnh_validade)
-                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {CAMPOS_MOTORISTA}
-            """, (f"mot-{uuid.uuid4().hex[:10]}", transportadora_id, dados.nome, dados.telefone, dados.cnhNumero,
-                  dados.cnhCategoria, dados.cnhValidade))
+                raise _cnh_duplicada()
+            with _sem_duplicidade(_cnh_duplicada()):
+                linha = await buscar_um(conn, f"""
+                    INSERT INTO transportadoras.motorista (id, transportadora_id, nome, telefone, cnh_numero,
+                                                           cnh_categoria, cnh_validade)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {CAMPOS_MOTORISTA}
+                """, (f"mot-{uuid.uuid4().hex[:10]}", transportadora_id, dados.nome, dados.telefone, dados.cnhNumero,
+                      dados.cnhCategoria, dados.cnhValidade))
         return linha_para_json(linha)
 
     @rotas.put("/{transportadora_id}/motoristas/{motorista_id}", tags=["frota"], summary="Atualiza um motorista")
@@ -267,15 +292,21 @@ def criar_rotas(db: BancoDeDados, servico: Transportadoras) -> APIRouter:
                                   usuario: Usuario = Depends(donos)):
         async with db.transacao() as conn:
             await conferir_dono(conn, transportadora_id, usuario)
-            linha = await buscar_um(conn, f"""
-                UPDATE transportadoras.motorista
-                   SET nome = %s, telefone = %s, cnh_numero = %s, cnh_categoria = %s, cnh_validade = %s
-                 WHERE id = %s AND transportadora_id = %s RETURNING {CAMPOS_MOTORISTA}
-            """, (dados.nome, dados.telefone, dados.cnhNumero, dados.cnhCategoria, dados.cnhValidade,
-                  motorista_id, transportadora_id))
-        if linha is None:
-            raise Problema(404, "MOTORISTA_NAO_ENCONTRADO", "Motorista não encontrado",
-                           f"Não existe motorista {motorista_id} nesta transportadora.")
+            if not await buscar_um(conn, "SELECT 1 FROM transportadoras.motorista WHERE id = %s "
+                                         "AND transportadora_id = %s", (motorista_id, transportadora_id)):
+                raise Problema(404, "MOTORISTA_NAO_ENCONTRADO", "Motorista não encontrado",
+                               f"Não existe motorista {motorista_id} nesta transportadora.")
+            if await buscar_um(conn, "SELECT 1 FROM transportadoras.motorista WHERE transportadora_id = %s "
+                                     "AND cnh_numero = %s AND id <> %s",
+                               (transportadora_id, dados.cnhNumero, motorista_id)):
+                raise _cnh_duplicada()
+            with _sem_duplicidade(_cnh_duplicada()):
+                linha = await buscar_um(conn, f"""
+                    UPDATE transportadoras.motorista
+                       SET nome = %s, telefone = %s, cnh_numero = %s, cnh_categoria = %s, cnh_validade = %s
+                     WHERE id = %s AND transportadora_id = %s RETURNING {CAMPOS_MOTORISTA}
+                """, (dados.nome, dados.telefone, dados.cnhNumero, dados.cnhCategoria, dados.cnhValidade,
+                      motorista_id, transportadora_id))
         return linha_para_json(linha)
 
     @rotas.delete("/{transportadora_id}/motoristas/{motorista_id}", tags=["frota"],
@@ -303,14 +334,14 @@ def criar_rotas(db: BancoDeDados, servico: Transportadoras) -> APIRouter:
         async with db.transacao() as conn:
             await conferir_dono(conn, transportadora_id, usuario)
             if await buscar_um(conn, "SELECT 1 FROM transportadoras.veiculo WHERE placa = %s", (dados.placa,)):
-                raise Problema(409, "PLACA_DUPLICADA", "Placa já cadastrada",
-                               f"Já existe um veículo com a placa {dados.placa}.")
-            linha = await buscar_um(conn, f"""
-                INSERT INTO transportadoras.veiculo (id, transportadora_id, placa, tipo, capacidade_kg, tipos_carga,
-                                                     categoria_cnh_exigida)
-                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {CAMPOS_VEICULO}
-            """, (f"vei-{uuid.uuid4().hex[:10]}", transportadora_id, dados.placa, dados.tipo, dados.capacidadeKg,
-                  list(dados.tiposCarga), dados.categoriaCnhExigida))
+                raise _placa_duplicada(dados.placa)
+            with _sem_duplicidade(_placa_duplicada(dados.placa)):
+                linha = await buscar_um(conn, f"""
+                    INSERT INTO transportadoras.veiculo (id, transportadora_id, placa, tipo, capacidade_kg, tipos_carga,
+                                                         categoria_cnh_exigida)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING {CAMPOS_VEICULO}
+                """, (f"vei-{uuid.uuid4().hex[:10]}", transportadora_id, dados.placa, dados.tipo, dados.capacidadeKg,
+                      list(dados.tiposCarga), dados.categoriaCnhExigida))
         return linha_para_json(linha)
 
     @rotas.put("/{transportadora_id}/veiculos/{veiculo_id}", tags=["frota"], summary="Atualiza um veículo")
@@ -318,15 +349,20 @@ def criar_rotas(db: BancoDeDados, servico: Transportadoras) -> APIRouter:
                                 usuario: Usuario = Depends(donos)):
         async with db.transacao() as conn:
             await conferir_dono(conn, transportadora_id, usuario)
-            linha = await buscar_um(conn, f"""
-                UPDATE transportadoras.veiculo
-                   SET placa = %s, tipo = %s, capacidade_kg = %s, tipos_carga = %s, categoria_cnh_exigida = %s
-                 WHERE id = %s AND transportadora_id = %s RETURNING {CAMPOS_VEICULO}
-            """, (dados.placa, dados.tipo, dados.capacidadeKg, list(dados.tiposCarga), dados.categoriaCnhExigida,
-                  veiculo_id, transportadora_id))
-        if linha is None:
-            raise Problema(404, "VEICULO_NAO_ENCONTRADO", "Veículo não encontrado",
-                           f"Não existe veículo {veiculo_id} nesta transportadora.")
+            if not await buscar_um(conn, "SELECT 1 FROM transportadoras.veiculo WHERE id = %s "
+                                         "AND transportadora_id = %s", (veiculo_id, transportadora_id)):
+                raise Problema(404, "VEICULO_NAO_ENCONTRADO", "Veículo não encontrado",
+                               f"Não existe veículo {veiculo_id} nesta transportadora.")
+            if await buscar_um(conn, "SELECT 1 FROM transportadoras.veiculo WHERE placa = %s AND id <> %s",
+                               (dados.placa, veiculo_id)):
+                raise _placa_duplicada(dados.placa)
+            with _sem_duplicidade(_placa_duplicada(dados.placa)):
+                linha = await buscar_um(conn, f"""
+                    UPDATE transportadoras.veiculo
+                       SET placa = %s, tipo = %s, capacidade_kg = %s, tipos_carga = %s, categoria_cnh_exigida = %s
+                     WHERE id = %s AND transportadora_id = %s RETURNING {CAMPOS_VEICULO}
+                """, (dados.placa, dados.tipo, dados.capacidadeKg, list(dados.tiposCarga), dados.categoriaCnhExigida,
+                      veiculo_id, transportadora_id))
         return linha_para_json(linha)
 
     @rotas.delete("/{transportadora_id}/veiculos/{veiculo_id}", tags=["frota"],
