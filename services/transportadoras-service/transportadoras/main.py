@@ -1,10 +1,13 @@
 """Ponto de entrada do transportadoras-service.
 
-Sobe a API e, no mesmo processo, duas rotinas em segundo plano:
+Sobe a API e, no mesmo processo, três rotinas em segundo plano:
 
-- consumidor: lê solicitacao_frete_criada (emite as cotações simuladas) e
+- consumidor: lê solicitacao_frete_criada (cota), frete_selecionado (escala
+  motorista e veículo), pedido_atualizado (cancela a viagem) e
   relogio_ajustado (sincroniza o relógio do módulo);
-- outbox:     publica no Kafka os eventos gravados no banco.
+- outbox:     publica no Kafka os eventos gravados no banco;
+- viagens:    a cada segundo, avança as viagens cuja hora do próximo passo
+  chegou (cada viagem anda a cada 30 s).
 
 Rodar: uvicorn transportadoras.main:app --host 0.0.0.0 --port 8109
 """
@@ -21,7 +24,7 @@ from comum.kafka import iniciar_produtor, verificar
 from comum.logs import configurar_logs
 from comum.outbox import PublicadorOutbox
 from comum.relogio import Relogio
-from comum.tarefas import iniciar, parar
+from comum.tarefas import iniciar, parar, repetir
 from comum.web import instalar_middleware, rotas_de_saude
 
 from . import SCHEMA, SERVICO, TOPICO_DLT
@@ -32,13 +35,15 @@ configurar_logs(SERVICO, config.texto("LOG_LEVEL", "INFO"))
 
 db = BancoDeDados(conninfo_do_ambiente(), max_conexoes=config.inteiro("DB_POOL_MAX", 5))
 relogio = Relogio(db, SCHEMA)
-transportadoras = Transportadoras(relogio)
+transportadoras = Transportadoras(relogio, config.inteiro("RASTREIO_INTERVALO_SEGUNDOS", 30))
 kafka: dict = {"produtor": None}
 
 consumidor = ConsumidorIdempotente(
     db=db, schema=SCHEMA, servico=SERVICO, grupo=SERVICO, topico_dlt=TOPICO_DLT,
     tratadores={
         "solicitacao_frete_criada": transportadoras.cotar_automaticamente,
+        "frete_selecionado": transportadoras.escalar,
+        "pedido_atualizado": transportadoras.cancelar_viagem,
         "relogio_ajustado": transportadoras.sincronizar_relogio,
     },
 )
@@ -50,6 +55,10 @@ async def rodar_outbox() -> None:
     await PublicadorOutbox(db, SCHEMA, SERVICO, kafka["produtor"]).executar()
 
 
+async def rodar_viagens() -> None:
+    await repetir(1.0, lambda: transportadoras.avancar_viagens(db))
+
+
 async def kafka_pronto() -> None:
     if kafka["produtor"] is None:
         raise RuntimeError("produtor Kafka ainda não conectado")
@@ -59,7 +68,7 @@ async def kafka_pronto() -> None:
 @asynccontextmanager
 async def ciclo_de_vida(_: FastAPI):
     await db.abrir()
-    tarefas = iniciar({"consumidor": consumidor.executar, "outbox": rodar_outbox})
+    tarefas = iniciar({"consumidor": consumidor.executar, "outbox": rodar_outbox, "viagens": rodar_viagens})
     yield
     await parar(tarefas)
     if kafka["produtor"] is not None:
@@ -69,7 +78,7 @@ async def ciclo_de_vida(_: FastAPI):
 
 app = FastAPI(
     title="Transportadoras",
-    version="0.1.0",
+    version="0.3.0",
     description="Transportadoras homologadas, cotações, motoristas, veículos e viagens. Grupo 5.",
     lifespan=ciclo_de_vida,
 )
