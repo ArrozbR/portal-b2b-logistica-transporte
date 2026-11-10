@@ -2,7 +2,8 @@
 
 Sobe a API e, no mesmo processo, três rotinas em segundo plano:
 
-- consumidor: lê pedido_criado, cotacao_recebida e pedido_atualizado do Kafka;
+- consumidor: lê pedido_criado, cotacao_recebida, pedido_atualizado e
+  rastreio_atualizado do Kafka;
 - outbox:     publica no Kafka os eventos gravados no banco;
 - prazos:     a cada segundo, fecha rodadas e aplica a escolha automática.
 
@@ -26,6 +27,7 @@ from comum.web import instalar_middleware, rotas_de_saude
 
 from . import SCHEMA, SERVICO, TOPICO_DLT
 from .api import criar_rotas
+from .rastreio import Rastreio
 from .servico import Logistica, Prazos
 
 configurar_logs(SERVICO, config.texto("LOG_LEVEL", "INFO"))
@@ -36,6 +38,7 @@ logistica = Logistica(relogio, Prazos(
     rodada_segundos=config.inteiro("RODADA_COTACAO_SEGUNDOS", 10),
     decisao_segundos=config.inteiro("PRAZO_DECISAO_SEGUNDOS", 12 * 3600),
 ))
+rastreio = Rastreio(logistica)
 kafka: dict = {"produtor": None}
 
 consumidor = ConsumidorIdempotente(
@@ -44,6 +47,7 @@ consumidor = ConsumidorIdempotente(
         "pedido_criado": logistica.abrir_solicitacao,
         "cotacao_recebida": logistica.registrar_cotacao,
         "pedido_atualizado": logistica.cancelar_pedido,
+        "rastreio_atualizado": rastreio.registrar_rastreio,
     },
 )
 

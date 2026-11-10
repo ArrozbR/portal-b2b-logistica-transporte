@@ -32,6 +32,29 @@ CAMPOS_SOLICITACAO = """
 """
 
 
+StatusEntrega = Literal["AGUARDANDO_ALOCACAO", "AGUARDANDO_COLETA", "EM_TRANSITO", "ENTREGUE", "RECUSADA",
+                        "CANCELADA"]
+
+CAMPOS_ENTREGA_RESUMO = """
+    e.id, e.pedido_id, e.tentativa, e.status, e.transportadora_id, e.transportadora_nome, e.progresso,
+    e.previsao_chegada, e.prazo_prometido, e.entregue_em, e.no_prazo, e.atraso_horas, e.com_ocorrencia,
+    e.veiculo_placa, s.produto_nome, s.peso_kg, s.tipo_carga, s.origem_cidade, s.origem_uf,
+    s.destino_cidade, s.destino_uf, e.atualizado_em
+"""
+
+CAMPOS_ENTREGA_DETALHE = """
+    e.id, e.pedido_id, e.tentativa, e.status, e.solicitacao_id, e.cotacao_id, e.transportadora_id,
+    e.transportadora_nome, e.transportadora_telefone, e.motorista_nome, e.motorista_telefone,
+    e.motorista_cnh_mascarada, e.veiculo_placa, e.veiculo_tipo, e.coleta_prevista, e.coletada_em,
+    e.previsao_chegada, e.prazo_prometido, e.progresso, e.posicao_lat, e.posicao_lon, e.posicao_em,
+    e.com_ocorrencia, e.entregue_em, e.no_prazo, e.atraso_horas, e.rota, e.atualizado_em,
+    c.preco AS preco_frete, c.prazo_dias,
+    s.produto_nome, s.peso_kg, s.tipo_carga, s.valor_carga, s.comprador_id, s.fornecedor_id,
+    s.origem_cidade, s.origem_uf, s.origem_lat, s.origem_lon,
+    s.destino_cidade, s.destino_uf, s.destino_lat, s.destino_lon, s.distancia_km
+"""
+
+
 class PedidoDeEscolha(BaseModel):
     """Informe `cotacaoId` (o comprador escolhe) OU `modo: AUTOMATICO` (regra do menor preço)."""
 
@@ -158,6 +181,96 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
             if anterior is not None:
                 return anterior
             raise
+
+    # ------------------------------------------------------------------ entregas e rastreio
+    def filtro_entrega(usuario: Usuario) -> tuple[str, list]:
+        condicao, parametros = _filtro_de_visibilidade(usuario)
+        return condicao.replace("comprador_id", "s.comprador_id").replace("fornecedor_id", "s.fornecedor_id"), parametros
+
+    @rotas.get("/entregas", tags=["entregas e rastreio"], summary="Lista as entregas visíveis para o usuário")
+    async def listar_entregas(
+        status: StatusEntrega | None = Query(None, description="Filtra por status"),
+        incluir_recusadas: bool = Query(False, description="Inclui tentativas recusadas pela transportadora"),
+        pagina: Pagina = Depends(paginacao),
+        usuario: Usuario = Depends(leitores),
+    ):
+        condicao, parametros = filtro_entrega(usuario)
+        if status:
+            condicao += " AND e.status = %s"
+            parametros.append(status)
+        elif not incluir_recusadas:
+            condicao += " AND e.status <> 'RECUSADA'"
+        async with db.transacao() as conn:
+            total = (await buscar_um(conn, f"""
+                SELECT count(*) AS n FROM logistica.entrega e
+                  JOIN logistica.solicitacao_frete s ON s.id = e.solicitacao_id WHERE {condicao}
+            """, parametros))["n"]
+            linhas = await buscar_todos(conn, f"""
+                SELECT {CAMPOS_ENTREGA_RESUMO} FROM logistica.entrega e
+                  JOIN logistica.solicitacao_frete s ON s.id = e.solicitacao_id
+                 WHERE {condicao}
+                 ORDER BY e.criado_em DESC LIMIT %s OFFSET %s
+            """, [*parametros, pagina.size, pagina.offset])
+        return resposta_paginada([linha_para_json(l) for l in linhas], pagina, total)
+
+    async def obter_entrega_visivel(conn, entrega_id: str, usuario: Usuario) -> dict:
+        condicao, parametros = filtro_entrega(usuario)
+        entrega = await buscar_um(conn, f"""
+            SELECT {CAMPOS_ENTREGA_DETALHE} FROM logistica.entrega e
+              JOIN logistica.solicitacao_frete s ON s.id = e.solicitacao_id
+              JOIN logistica.cotacao c ON c.id = e.cotacao_id
+             WHERE e.id = %s AND {condicao}
+        """, [entrega_id, *parametros])
+        if entrega is None:
+            raise Problema(404, "ENTREGA_NAO_ENCONTRADA", "Entrega não encontrada",
+                           f"Não existe entrega {entrega_id} visível para você.")
+        return entrega
+
+    @rotas.get("/entregas/{entrega_id}", tags=["entregas e rastreio"],
+               summary="Resumo da entrega: status, carga, transportadora, motorista e veículo")
+    async def obter_entrega(entrega_id: str, usuario: Usuario = Depends(leitores)):
+        async with db.transacao() as conn:
+            return linha_para_json(await obter_entrega_visivel(conn, entrega_id, usuario))
+
+    @rotas.get("/entregas/{entrega_id}/rastreio", tags=["entregas e rastreio"],
+               summary="Rota, posição atual e linha do tempo (a tela consulta a cada 5 s)")
+    async def rastrear(entrega_id: str, usuario: Usuario = Depends(leitores)):
+        async with db.transacao() as conn:
+            e = await obter_entrega_visivel(conn, entrega_id, usuario)
+            eventos = await buscar_todos(conn, """
+                SELECT sequencia, tipo, descricao, lat, lon, progresso, ocorrido_em
+                  FROM logistica.evento_rastreio WHERE entrega_id = %s ORDER BY sequencia
+            """, (entrega_id,))
+            hora = await logistica.relogio.agora(conn)
+        posicao = ({"lat": float(e["posicao_lat"]), "lon": float(e["posicao_lon"])}
+                   if e["posicao_lat"] is not None else None)
+        return {
+            "entregaId": e["id"], "pedidoId": e["pedido_id"], "status": e["status"],
+            "progresso": float(e["progresso"]), "posicao": posicao,
+            "posicaoEm": iso(e["posicao_em"]) if e["posicao_em"] else None,
+            "previsaoChegada": iso(e["previsao_chegada"]) if e["previsao_chegada"] else None,
+            "origem": {"cidade": e["origem_cidade"], "uf": e["origem_uf"],
+                       "lat": float(e["origem_lat"]), "lon": float(e["origem_lon"])},
+            "destino": {"cidade": e["destino_cidade"], "uf": e["destino_uf"],
+                        "lat": float(e["destino_lat"]), "lon": float(e["destino_lon"])},
+            "rota": e["rota"] or [],
+            "eventos": [linha_para_json(ev) for ev in eventos],
+            "horaDoModulo": iso(hora),
+        }
+
+    @rotas.get("/pedidos/{pedido_id}/entrega", tags=["entregas e rastreio"],
+               summary="Entrega atual de um pedido (para a tela de pedidos linkar o rastreio)")
+    async def entrega_do_pedido(pedido_id: str, usuario: Usuario = Depends(leitores)):
+        condicao, parametros = filtro_entrega(usuario)
+        async with db.transacao() as conn:
+            linha = await buscar_um(conn, f"""
+                SELECT e.id FROM logistica.entrega e JOIN logistica.solicitacao_frete s ON s.id = e.solicitacao_id
+                 WHERE e.pedido_id = %s AND {condicao} ORDER BY e.tentativa DESC LIMIT 1
+            """, [pedido_id, *parametros])
+            if linha is None:
+                raise Problema(404, "ENTREGA_NAO_ENCONTRADA", "Entrega não encontrada",
+                               f"O pedido {pedido_id} ainda não tem entrega visível para você.")
+            return linha_para_json(await obter_entrega_visivel(conn, linha["id"], usuario))
 
     # ------------------------------------------------------------------ notificações
     @rotas.get("/notificacoes", tags=["notificações"], summary="Notificações da empresa do usuário")

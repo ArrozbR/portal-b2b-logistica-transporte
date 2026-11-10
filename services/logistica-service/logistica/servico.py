@@ -33,7 +33,8 @@ from comum.relogio import EstadoRelogio, Relogio, gravar_estado, reajustar
 
 from . import SCHEMA, SERVICO
 from .notificacoes import (COMPRADOR, FORNECEDOR, notificar, texto_cotacoes_disponiveis, texto_frete_escolhido,
-                           texto_frete_indisponivel, texto_sem_cotacao)
+                           texto_frete_indisponivel, texto_sem_cotacao, texto_sem_transportadora,
+                           texto_transportadora_trocada)
 from .regras import CotacaoCandidata, escolher_automaticamente
 
 log = logging.getLogger(__name__)
@@ -223,31 +224,7 @@ class Logistica:
             raise Problema(409, "FRETE_JA_ESCOLHIDO", "Frete já escolhido",
                            f"A solicitação {solicitacao_id} já teve o frete escolhido.")
 
-        entrega_id = str(uuid.uuid4())
-        await conn.execute("""
-            INSERT INTO logistica.entrega (id, pedido_id, tentativa, solicitacao_id, cotacao_id,
-                                           transportadora_id, status, prazo_prometido)
-            VALUES (%s, %s, 1, %s, %s, %s, 'AGUARDANDO_ALOCACAO', %s)
-        """, (entrega_id, solicitacao["pedido_id"], solicitacao_id, vencedora_id,
-              vencedora["transportadora_id"], vencedora["data_entrega_prevista"]))
-
-        data_prevista = vencedora["data_entrega_prevista"]
-        payload = {
-            "pedidoId": solicitacao["pedido_id"],
-            "solicitacaoFreteId": solicitacao_id,
-            "entregaId": entrega_id,
-            "tentativa": 1,
-            "cotacaoId": vencedora_id,
-            "transportadoraId": vencedora["transportadora_id"],
-            "preco": float(vencedora["preco"]),
-            "prazoDias": vencedora["prazo_dias"],
-            "dataEntregaPrevista": data_prevista.isoformat() if data_prevista else None,
-            "criterio": criterio,
-            "status": "FRETE_SELECIONADO",
-        }
-        validar_payload("frete_selecionado", payload)
-        await gravar_evento(conn, SCHEMA, SERVICO, "frete_selecionado", solicitacao["pedido_id"], payload,
-                            solicitacao["correlation_id"])
+        payload = await self._criar_entrega_e_publicar(conn, solicitacao, vencedora, criterio, tentativa=1)
 
         texto = texto_frete_escolhido(solicitacao["pedido_id"], vencedora["transportadora_nome"]
                                       or vencedora["transportadora_id"], vencedora["preco"],
@@ -264,6 +241,104 @@ class Logistica:
             "transportadoraId": vencedora["transportadora_id"], "preco": float(vencedora["preco"]),
             "criterio": criterio, "escolhidaPor": escolhida_por, "cotacoesConsideradas": len(candidatas)}})
         return {**payload, "transportadoraNome": vencedora["transportadora_nome"]}
+
+    async def _criar_entrega_e_publicar(self, conn: AsyncConnection, solicitacao: dict, cotacao: dict,
+                                        criterio: str, tentativa: int) -> dict:
+        """Cria a entrega da cotação escolhida e grava o frete_selecionado na outbox."""
+        entrega_id = str(uuid.uuid4())
+        await conn.execute("""
+            INSERT INTO logistica.entrega (id, pedido_id, tentativa, solicitacao_id, cotacao_id, transportadora_id,
+                                           transportadora_nome, status, prazo_prometido)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'AGUARDANDO_ALOCACAO', %s)
+        """, (entrega_id, solicitacao["pedido_id"], tentativa, solicitacao["id"], cotacao["id"],
+              cotacao["transportadora_id"], cotacao["transportadora_nome"], cotacao["data_entrega_prevista"]))
+
+        data_prevista = cotacao["data_entrega_prevista"]
+        payload = {
+            "pedidoId": solicitacao["pedido_id"],
+            "solicitacaoFreteId": solicitacao["id"],
+            "entregaId": entrega_id,
+            "tentativa": tentativa,
+            "cotacaoId": cotacao["id"],
+            "transportadoraId": cotacao["transportadora_id"],
+            "preco": float(cotacao["preco"]),
+            "prazoDias": cotacao["prazo_dias"],
+            "dataEntregaPrevista": data_prevista.isoformat() if data_prevista else None,
+            "criterio": criterio,
+            "status": "FRETE_SELECIONADO",
+        }
+        validar_payload("frete_selecionado", payload)
+        await gravar_evento(conn, SCHEMA, SERVICO, "frete_selecionado", solicitacao["pedido_id"], payload,
+                            solicitacao["correlation_id"])
+        return payload
+
+    # ------------------------------------------------------------------ viagem recusada (D20)
+    async def trocar_transportadora(self, conn: AsyncConnection, entrega: dict) -> str:
+        """A transportadora escolhida recusou a viagem (sem motorista ou caminhão livre).
+
+        Passa para a próxima cotação pela regra automática. Sem cotação
+        restante, o frete fica indisponível. A troca é uma gravação condicional
+        (`WHERE cotacao_escolhida_id = <cotação recusada>`): se a mesma recusa
+        chegar duas vezes, a segunda não troca de novo.
+        """
+        await conn.execute("UPDATE logistica.entrega SET status = 'RECUSADA', atualizado_em = now() WHERE id = %s",
+                           (entrega["id"],))
+        await conn.execute("UPDATE logistica.cotacao SET status = 'VIAGEM_RECUSADA' WHERE id = %s",
+                           (entrega["cotacao_id"],))
+        solicitacao = await buscar_um(
+            conn, "SELECT * FROM logistica.solicitacao_frete WHERE id = %s FOR UPDATE", (entrega["solicitacao_id"],))
+        agora = await self.relogio.agora(conn)
+        linhas = await buscar_todos(conn, """
+            SELECT id, transportadora_id, transportadora_nome, preco, prazo_dias, data_entrega_prevista
+              FROM logistica.cotacao WHERE solicitacao_id = %s AND status = 'VALIDA'
+        """, (solicitacao["id"],))
+        destinatarios = ((solicitacao["comprador_id"], COMPRADOR), (solicitacao["fornecedor_id"], FORNECEDOR))
+
+        if not linhas:
+            alterada = await conn.execute(
+                "UPDATE logistica.solicitacao_frete SET status = 'INDISPONIVEL', atualizado_em = now() "
+                "WHERE id = %s AND status = 'SELECIONADA' AND cotacao_escolhida_id = %s",
+                (solicitacao["id"], entrega["cotacao_id"]))
+            if alterada.rowcount == 1:
+                await self._publicar_frete_indisponivel(conn, solicitacao, "SEM_TRANSPORTADORA_DISPONIVEL",
+                                                        "Nenhuma transportadora que cotou tem frota livre", agora)
+                for empresa_id, papel in destinatarios:
+                    await notificar(conn, empresa_id=empresa_id, papel=papel, tipo="FRETE_INDISPONIVEL",
+                                    texto=texto_sem_transportadora(solicitacao["pedido_id"]),
+                                    pedido_id=solicitacao["pedido_id"], solicitacao_id=solicitacao["id"], agora=agora)
+            return "indisponivel"
+
+        candidatas = [CotacaoCandidata(l["id"], l["transportadora_id"], l["preco"], l["prazo_dias"]) for l in linhas]
+        nova_id = escolher_automaticamente(candidatas, await self._pontualidade(conn)).id
+        nova = next(l for l in linhas if l["id"] == nova_id)
+        alterada = await conn.execute("""
+            UPDATE logistica.solicitacao_frete
+               SET cotacao_escolhida_id = %s, criterio = %s, atualizado_em = now()
+             WHERE id = %s AND status = 'SELECIONADA' AND cotacao_escolhida_id = %s
+        """, (nova_id, AUTOMATICO, solicitacao["id"], entrega["cotacao_id"]))
+        if alterada.rowcount != 1:
+            log.info("Troca de transportadora já feita antes", extra={"dados": {"entregaId": entrega["id"]}})
+            return "ja_trocada"
+
+        await self._criar_entrega_e_publicar(conn, solicitacao, nova, AUTOMATICO, tentativa=entrega["tentativa"] + 1)
+        texto = texto_transportadora_trocada(solicitacao["pedido_id"], entrega["transportadora_nome"]
+                                             or entrega["transportadora_id"], nova["transportadora_nome"]
+                                             or nova["transportadora_id"], nova["preco"], nova["prazo_dias"])
+        for empresa_id, papel in destinatarios:
+            await notificar(conn, empresa_id=empresa_id, papel=papel, tipo="TRANSPORTADORA_TROCADA", texto=texto,
+                            pedido_id=solicitacao["pedido_id"], solicitacao_id=solicitacao["id"], agora=agora)
+        log.warning("Transportadora trocada após recusa da viagem", extra={"dados": {
+            "pedidoId": solicitacao["pedido_id"], "recusou": entrega["transportadora_id"],
+            "nova": nova["transportadora_id"], "tentativa": entrega["tentativa"] + 1}})
+        return "trocada"
+
+    async def _publicar_frete_indisponivel(self, conn: AsyncConnection, solicitacao: dict, motivo: str,
+                                           detalhe: str, agora: datetime) -> None:
+        payload = {"pedidoId": solicitacao["pedido_id"], "solicitacaoFreteId": solicitacao["id"],
+                   "motivo": motivo, "detalhe": detalhe, "ocorridoEm": iso(agora)}
+        validar_payload("frete_indisponivel", payload)
+        await gravar_evento(conn, SCHEMA, SERVICO, "frete_indisponivel", solicitacao["pedido_id"], payload,
+                            solicitacao["correlation_id"])
 
     @staticmethod
     def _conferir_status_para_escolha(solicitacao: dict) -> None:
@@ -400,16 +475,8 @@ class Logistica:
         await conn.execute(
             "UPDATE logistica.solicitacao_frete SET status = 'INDISPONIVEL', atualizado_em = now() "
             "WHERE id = %s AND status = 'SEM_COTACAO'", (linha["id"],))
-        payload = {
-            "pedidoId": linha["pedido_id"],
-            "solicitacaoFreteId": linha["id"],
-            "motivo": "SEM_COTACAO",
-            "detalhe": "Nenhuma transportadora cotou dentro do prazo de decisão",
-            "ocorridoEm": iso(agora),
-        }
-        validar_payload("frete_indisponivel", payload)
-        await gravar_evento(conn, SCHEMA, SERVICO, "frete_indisponivel", linha["pedido_id"], payload,
-                            linha["correlation_id"])
+        await self._publicar_frete_indisponivel(conn, linha, "SEM_COTACAO",
+                                                "Nenhuma transportadora cotou dentro do prazo de decisão", agora)
         texto = texto_frete_indisponivel(linha["pedido_id"])
         for empresa_id, papel in ((linha["comprador_id"], COMPRADOR), (linha["fornecedor_id"], FORNECEDOR)):
             await notificar(conn, empresa_id=empresa_id, papel=papel, tipo="FRETE_INDISPONIVEL", texto=texto,
