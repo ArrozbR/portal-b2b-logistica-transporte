@@ -19,8 +19,9 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
 from comum.db import BancoDeDados, buscar_todos, buscar_um
+from comum.erros import Problema
 from comum.eventos import EventoInvalido, validar_payload
-from comum.geo import Cidade, interpolar_rota, somar_dias_uteis
+from comum.geo import Cidade, dias_uteis_entre, interpolar_rota, somar_dias_uteis
 from comum.logs import correlacao
 from comum.outbox import gravar_evento
 from comum.relogio import EstadoRelogio, Relogio, gravar_estado
@@ -75,15 +76,15 @@ class Transportadoras:
             INSERT INTO transportadoras.solicitacao_recebida (
                 id, pedido_id, produto_nome, tipo_carga, peso_kg, origem_cidade, origem_uf, origem_lat, origem_lon,
                 destino_cidade, destino_uf, destino_lat, destino_lon, distancia_km, data_coleta_prevista,
-                prazo_decisao_em)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                prazo_decisao_em, correlation_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
             RETURNING id
         """, (
             sid, solicitacao["pedidoId"], solicitacao.get("produtoNome"), solicitacao["tipoCarga"],
             solicitacao["pesoKg"], origem["cidade"], origem["uf"], origem["lat"], origem["lon"],
             destino["cidade"], destino["uf"], destino["lat"], destino["lon"], solicitacao["distanciaKm"],
-            solicitacao["dataColetaPrevista"], solicitacao["prazoDecisaoEm"],
+            solicitacao["dataColetaPrevista"], solicitacao["prazoDecisaoEm"], envelope.get("correlationId"),
         ))
         if nova is None:
             log.info("Solicitação já recebida antes", extra={"dados": {"solicitacaoFreteId": sid}})
@@ -134,15 +135,17 @@ class Transportadoras:
 
     async def _emitir(self, conn: AsyncConnection, solicitacao_id: str, perfil: PerfilTransportadora,
                       preco: Decimal, prazo: int, data_entrega: date, valida_ate: str, agora: datetime,
-                      id_correlacao: str | None) -> None:
+                      id_correlacao: str | None, origem: str = "SIMULADA", observacoes: str | None = None,
+                      usuario_id: str | None = None) -> str:
         cotacao_id = id_da_cotacao(solicitacao_id, perfil.id)
         await conn.execute("""
             INSERT INTO transportadoras.cotacao_emitida (
                 id, solicitacao_id, transportadora_id, preco, prazo_dias, data_entrega_prevista, valida_ate,
-                origem_cotacao, emitida_em)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'SIMULADA', %s)
-        """, (cotacao_id, solicitacao_id, perfil.id, preco, prazo, data_entrega, valida_ate, agora))
-        await gravar_evento(conn, SCHEMA, SERVICO, "cotacao_recebida", solicitacao_id, {
+                origem_cotacao, observacoes, usuario_id, emitida_em)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (cotacao_id, solicitacao_id, perfil.id, preco, prazo, data_entrega, valida_ate, origem, observacoes,
+              usuario_id, agora))
+        payload = {
             "cotacaoId": cotacao_id,
             "solicitacaoFreteId": solicitacao_id,
             "transportadoraId": perfil.id,
@@ -151,14 +154,91 @@ class Transportadoras:
             "prazoDias": prazo,
             "dataEntregaPrevista": data_entrega.isoformat(),
             "validaAte": valida_ate,
-            "origemCotacao": "SIMULADA",
-            "observacoes": None,
-        }, id_correlacao)
+            "origemCotacao": origem,
+            "observacoes": observacoes,
+        }
+        validar_payload("cotacao_recebida", payload)
+        await gravar_evento(conn, SCHEMA, SERVICO, "cotacao_recebida", solicitacao_id, payload, id_correlacao)
+        return cotacao_id
+
+    # ------------------------------------------------------------------ cotação digitada (D3)
+    async def cotar_manualmente(self, conn: AsyncConnection, empresa_id: str, usuario_id: str, solicitacao_id: str,
+                                valor: Decimal, data_entrega: date, valida_ate: datetime,
+                                observacoes: str | None) -> dict:
+        """Uma transportadora real digita a cotação na tela "Solicitações de frete".
+
+        Regras (UX-FRT-05 e UX-FRT-06 do grupo de UX, D20):
+        - só a transportadora da empresa do usuário, compatível com a carga;
+        - solicitação ainda aberta (frete não escolhido, pedido não cancelado, prazo não vencido);
+        - entrega depois da data de coleta; validade da proposta no futuro;
+        - motorista e veículo livres e compatíveis;
+        - uma cotação por transportadora e solicitação.
+        """
+        transportadora = await buscar_um(conn, """
+            SELECT id, nome, tipos_carga, ufs_atendidas FROM transportadoras.transportadora
+             WHERE empresa_id = %s AND ativa
+        """, (empresa_id,))
+        if transportadora is None:
+            raise Problema(403, "SEM_TRANSPORTADORA", "Acesso negado",
+                           "A sua empresa não tem uma transportadora homologada ativa.")
+        solicitacao = await buscar_um(
+            conn, "SELECT * FROM transportadoras.solicitacao_recebida WHERE id = %s FOR UPDATE", (solicitacao_id,))
+        if solicitacao is None:
+            raise Problema(404, "SOLICITACAO_NAO_ENCONTRADA", "Solicitação não encontrada",
+                           f"Não existe solicitação de frete {solicitacao_id}.")
+        perfil = PerfilTransportadora(
+            id=transportadora["id"], nome=transportadora["nome"], tipos_carga=tuple(transportadora["tipos_carga"]),
+            ufs_atendidas=tuple(transportadora["ufs_atendidas"]) if transportadora["ufs_atendidas"] else None)
+        if not atende(perfil, solicitacao["tipo_carga"], solicitacao["origem_uf"], solicitacao["destino_uf"]):
+            raise Problema(403, "CARGA_INCOMPATIVEL", "Carga incompatível",
+                           "A sua transportadora não atende esse tipo de carga ou essa rota.")
+
+        agora = await self.relogio.agora(conn)
+        if solicitacao["status"] != "ABERTA" or agora > solicitacao["prazo_decisao_em"]:
+            raise Problema(409, "SOLICITACAO_ENCERRADA", "Solicitação encerrada",
+                           "Esta solicitação não aceita mais cotações: o frete já foi escolhido, o pedido foi "
+                           "cancelado ou o prazo acabou.")
+        if await buscar_um(conn, "SELECT 1 FROM transportadoras.cotacao_emitida WHERE solicitacao_id = %s "
+                                 "AND transportadora_id = %s", (solicitacao_id, perfil.id)):
+            raise Problema(409, "COTACAO_JA_ENVIADA", "Cotação já enviada",
+                           "A sua transportadora já cotou esta solicitação.")
+
+        coleta = solicitacao["data_coleta_prevista"]
+        prazo = dias_uteis_entre(coleta, data_entrega)
+        if prazo < 1:
+            raise Problema(422, "PRAZO_INVALIDO", "Prazo inválido",
+                           f"A entrega precisa ser pelo menos um dia útil depois da coleta ({coleta.strftime('%d/%m/%Y')}).")
+        if valida_ate <= agora:
+            raise Problema(422, "VALIDADE_INVALIDA", "Validade inválida",
+                           "A validade da proposta precisa ser depois da hora atual do módulo.")
+
+        tem_frota = await buscar_um(conn, f"""
+            SELECT {FROTA_LIVRE} AS ok FROM transportadoras.transportadora t WHERE t.id = %(id)s
+        """, {"id": perfil.id, "tipo_carga": solicitacao["tipo_carga"], "peso_kg": solicitacao["peso_kg"],
+              "hoje": agora.date()})
+        if not tem_frota["ok"]:
+            raise Problema(422, "SEM_FROTA_LIVRE", "Sem motorista ou veículo livre",
+                           "Cadastre ou libere um motorista e um veículo compatíveis com a carga antes de cotar (D20).")
+
+        cotacao_id = await self._emitir(conn, solicitacao_id, perfil, valor, prazo, data_entrega, iso(valida_ate),
+                                        agora, solicitacao["correlation_id"], origem="DIGITADA",
+                                        observacoes=observacoes, usuario_id=usuario_id)
+        log.info("Cotação digitada enviada", extra={"dados": {
+            "solicitacaoFreteId": solicitacao_id, "transportadoraId": perfil.id, "preco": float(valor),
+            "prazoDias": prazo}})
+        return {"cotacaoId": cotacao_id, "solicitacaoFreteId": solicitacao_id, "transportadoraId": perfil.id,
+                "preco": float(valor), "prazoDias": prazo, "dataEntregaPrevista": data_entrega.isoformat(),
+                "validaAte": iso(valida_ate), "origemCotacao": "DIGITADA", "observacoes": observacoes}
 
     # ------------------------------------------------------------------ escala (frete_selecionado)
     async def escalar(self, conn: AsyncConnection, envelope: dict) -> str:
         """A transportadora venceu: sorteia motorista e veículo livres e compatíveis e agenda a viagem (D19, D20)."""
         frete = validar_payload("frete_selecionado", envelope["payload"])
+        # A solicitação deixa de aceitar cotação digitada e passa a mostrar quem venceu.
+        await conn.execute("""
+            UPDATE transportadoras.solicitacao_recebida SET status = 'ENCERRADA', transportadora_vencedora_id = %s
+             WHERE id = %s
+        """, (frete["transportadoraId"], frete["solicitacaoFreteId"]))
         transportadora = await buscar_um(conn, """
             SELECT t.id, t.nome, t.telefone_contato, t.prob_atraso, r.km_por_dia
               FROM transportadoras.transportadora t
@@ -313,18 +393,21 @@ class Transportadoras:
             await self._publicar(conn, self._payload(v, sequencia, evento), v["correlation_id"])
 
         entregue = novo.status == "ENTREGUE"
-        no_prazo = next((e.extras["noPrazo"] for e in eventos if e.tipo == "ENTREGA_REALIZADA"), None)
+        entrega = next((e for e in eventos if e.tipo == "ENTREGA_REALIZADA"), None)
+        no_prazo = entrega.extras["noPrazo"] if entrega else None
+        atraso_real = entrega.extras["atrasoHoras"] if entrega else None
         await conn.execute("""
             UPDATE transportadoras.viagem
                SET status = %s, chegada_prevista = %s, atraso_revelado = %s, parada_publicada = %s,
                    marco_tempo = %s, marco_progresso = %s, progresso = %s, sequencia = %s,
                    proximo_passo_em = now() + make_interval(secs => %s),
                    entregue_em = CASE WHEN %s THEN %s ELSE entregue_em END,
-                   no_prazo = COALESCE(%s, no_prazo)
+                   no_prazo = COALESCE(%s, no_prazo),
+                   atraso_real_horas = COALESCE(%s, atraso_real_horas)
              WHERE id = %s
         """, (novo.status, novo.chegada_prevista, novo.atraso_revelado, novo.parada_publicada, novo.marco_tempo,
               novo.marco_progresso, novo.progresso, sequencia, self.intervalo, entregue, novo.chegada_prevista,
-              no_prazo, v["id"]))
+              no_prazo, atraso_real, v["id"]))
         if entregue:
             await self._liberar_frota(conn, v["id"])
             log.info("Entrega realizada", extra={"dados": {"entregaId": v["entrega_id"], "noPrazo": no_prazo}})
@@ -352,6 +435,10 @@ class Transportadoras:
         dados = validar_payload("pedido_atualizado", envelope["payload"])
         if (dados.get("novoStatus") or dados.get("status") or "").upper() != "CANCELADO":
             return "ignorado"
+        await conn.execute("""
+            UPDATE transportadoras.solicitacao_recebida SET status = 'ENCERRADA', cancelada = TRUE
+             WHERE pedido_id = %s
+        """, (dados["pedidoId"],))
         viagens = await buscar_todos(conn, """
             UPDATE transportadoras.viagem SET status = 'CANCELADA'
              WHERE pedido_id = %s AND status IN ('AGENDADA', 'EM_TRANSITO')

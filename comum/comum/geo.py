@@ -152,5 +152,15 @@ def somar_dias_uteis(inicio: date, dias: int) -> date:
     return atual
 
 
+def dias_uteis_entre(inicio: date, fim: date) -> int:
+    """Quantos dias úteis depois de `inicio` até `fim` (inclusive). Inverso de somar_dias_uteis."""
+    dias, atual = 0, inicio
+    while atual < fim:
+        atual += timedelta(days=1)
+        if atual.weekday() < 5:
+            dias += 1
+    return dias
+
+
 def proximo_dia_util(dia: date) -> date:
     return somar_dias_uteis(dia, 1)

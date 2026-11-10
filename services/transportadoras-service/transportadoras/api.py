@@ -1,22 +1,25 @@
 """Rotas REST das transportadoras.
 
-- Consulta das transportadoras homologadas.
+- Consulta das transportadoras homologadas e ranking de desempenho (D6).
+- Cargas disponíveis e cotação digitada (D3), para transportadoras reais.
 - Cadastro de motoristas e veículos (D19): só a própria transportadora ou um administrador.
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel, Field, field_validator
 
 from comum.auth import Usuario, exigir_perfis
 from comum.db import BancoDeDados, buscar_todos, buscar_um
 from comum.erros import Problema
+from comum.formatos import BRASILIA
 from comum.web import Pagina, paginacao, resposta_paginada
 
-from .servico import linha_para_json
+from .servico import Transportadoras, iso, linha_para_json
 
 CAMPOS = """
     t.id, t.nome, t.telefone_contato, t.ativa, t.simulada, t.tipos_carga, t.ufs_atendidas,
@@ -47,7 +50,81 @@ CAMPOS_VEICULO = ("id, placa, tipo, capacidade_kg, tipos_carga, categoria_cnh_ex
                   "viagem_atual_id IS NOT NULL AS em_viagem")
 
 
-def criar_rotas(db: BancoDeDados) -> APIRouter:
+class DadosCotacao(BaseModel):
+    valor: float = Field(..., gt=0, le=10_000_000, description="Valor do frete em R$")
+    dataEntregaPrevista: date = Field(..., description="Data em que a carga chega (prazo estimado)")
+    validaAte: datetime = Field(..., description="Até quando a proposta vale (hora do módulo)")
+    observacoes: str | None = Field(None, max_length=500)
+
+    @field_validator("validaAte")
+    @classmethod
+    def com_fuso(cls, valor: datetime) -> datetime:
+        return valor if valor.tzinfo else valor.replace(tzinfo=BRASILIA)
+
+
+# Cargas compatíveis com a transportadora: abertas e dentro do prazo, mais as que ela cotou.
+SQL_CARGAS = """
+    SELECT s.id, s.pedido_id, s.produto_nome, s.tipo_carga, s.peso_kg, s.origem_cidade, s.origem_uf,
+           s.destino_cidade, s.destino_uf, s.distancia_km, s.data_coleta_prevista, s.prazo_decisao_em,
+           s.status, s.cancelada, s.transportadora_vencedora_id,
+           c.id AS minha_cotacao_id, c.preco AS minha_cotacao_preco, c.prazo_dias AS minha_cotacao_prazo,
+           c.data_entrega_prevista AS minha_cotacao_entrega, c.origem_cotacao AS minha_cotacao_origem,
+           c.emitida_em AS minha_cotacao_emitida_em
+      FROM transportadoras.solicitacao_recebida s
+      LEFT JOIN transportadoras.cotacao_emitida c ON c.solicitacao_id = s.id AND c.transportadora_id = %(tid)s
+     WHERE s.tipo_carga = ANY(%(tipos)s)
+       AND (%(ufs)s::text[] IS NULL OR (s.origem_uf = ANY(%(ufs)s) AND s.destino_uf = ANY(%(ufs)s)))
+       AND (%(todas)s OR (s.status = 'ABERTA' AND s.prazo_decisao_em > %(agora)s) OR c.id IS NOT NULL)
+     ORDER BY s.data_coleta_prevista DESC, s.recebida_em DESC, s.id
+     LIMIT %(limite)s OFFSET %(deslocamento)s
+"""
+
+# Ranking: viagens e cotações de cada transportadora (D6), com filtro opcional por tipo de carga.
+SQL_RANKING = """
+    SELECT t.id, t.nome, t.simulada, t.tipos_carga,
+           COALESCE(vi.entregas, 0) AS entregas, COALESCE(vi.no_prazo, 0) AS no_prazo,
+           vi.atraso_medio_horas, COALESCE(vi.escolhida, 0) AS vezes_escolhida,
+           COALESCE(co.cotacoes, 0) AS cotacoes, co.preco_medio_t_km
+      FROM transportadoras.transportadora t
+      LEFT JOIN LATERAL (
+            SELECT count(*) FILTER (WHERE v.status = 'ENTREGUE') AS entregas,
+                   count(*) FILTER (WHERE v.status = 'ENTREGUE' AND v.no_prazo) AS no_prazo,
+                   round(avg(v.atraso_real_horas) FILTER (WHERE v.status = 'ENTREGUE'), 1) AS atraso_medio_horas,
+                   count(*) AS escolhida
+              FROM transportadoras.viagem v
+              JOIN transportadoras.solicitacao_recebida s ON s.id = v.solicitacao_id
+             WHERE v.transportadora_id = t.id AND (%(tipo)s::text IS NULL OR s.tipo_carga = %(tipo)s)
+      ) vi ON TRUE
+      LEFT JOIN LATERAL (
+            SELECT count(*) AS cotacoes,
+                   round(avg(c.preco / NULLIF(s.peso_kg / 1000.0 * s.distancia_km, 0)), 4) AS preco_medio_t_km
+              FROM transportadoras.cotacao_emitida c
+              JOIN transportadoras.solicitacao_recebida s ON s.id = c.solicitacao_id
+             WHERE c.transportadora_id = t.id AND (%(tipo)s::text IS NULL OR s.tipo_carga = %(tipo)s)
+      ) co ON TRUE
+     WHERE t.ativa
+     ORDER BY (COALESCE(vi.no_prazo, 0)::float / NULLIF(vi.entregas, 0)) DESC NULLS LAST,
+              COALESCE(vi.entregas, 0) DESC, t.nome
+     LIMIT %(limite)s OFFSET %(deslocamento)s
+"""
+
+
+def situacao_da_carga(linha: dict, transportadora_id: str, agora: datetime) -> str:
+    """Como a carga aparece para a transportadora na tela "Solicitações de frete"."""
+    cotou = linha["minha_cotacao_id"] is not None
+    vencedora = linha["transportadora_vencedora_id"]
+    if vencedora:
+        if vencedora == transportadora_id:
+            return "VENCEU"
+        return "OUTRA_VENCEU" if cotou else "ENCERRADA"
+    if linha["cancelada"]:
+        return "CANCELADA"
+    if linha["status"] == "ABERTA" and linha["prazo_decisao_em"] > agora:
+        return "COTACAO_ENVIADA" if cotou else "ACEITANDO_COTACOES"
+    return "ENCERRADA"
+
+
+def criar_rotas(db: BancoDeDados, servico: Transportadoras) -> APIRouter:
     rotas = APIRouter(prefix="/api/v1/transportadoras")
     todos = exigir_perfis("comprador", "fornecedor", "transportadora", "admin")
     donos = exigir_perfis("transportadora", "admin")
@@ -61,6 +138,73 @@ def criar_rotas(db: BancoDeDados) -> APIRouter:
         if not usuario.admin and linha["empresa_id"] != usuario.empresa_id:
             raise Problema(403, "OUTRA_TRANSPORTADORA", "Acesso negado",
                            "Uma transportadora só gerencia a própria frota.")
+
+    # ------------------------------------------------------------------ rotas fixas (antes de /{transportadora_id})
+    @rotas.get("/minha", tags=["transportadoras"], summary="A transportadora da empresa do usuário")
+    async def minha(usuario: Usuario = Depends(exigir_perfis("transportadora"))):
+        async with db.transacao() as conn:
+            linha = await buscar_um(conn, f"""
+                SELECT {CAMPOS} FROM transportadoras.transportadora t
+                  LEFT JOIN transportadoras.regra_cotacao r ON r.transportadora_id = t.id
+                 WHERE t.empresa_id = %s
+            """, (usuario.empresa_id,))
+        if linha is None:
+            raise Problema(404, "SEM_TRANSPORTADORA", "Transportadora não encontrada",
+                           "A sua empresa não tem uma transportadora homologada.")
+        return linha_para_json(linha)
+
+    @rotas.get("/ranking", tags=["ranking"], summary="Ranking de desempenho das transportadoras")
+    async def ranking(tipoCarga: TipoCarga | None = Query(None, description="Filtra por tipo de carga"),
+                      pagina: Pagina = Depends(paginacao), _: Usuario = Depends(todos)):
+        async with db.transacao() as conn:
+            total = (await buscar_um(conn, "SELECT count(*) AS n FROM transportadoras.transportadora WHERE ativa"))["n"]
+            linhas = await buscar_todos(conn, SQL_RANKING, {"tipo": tipoCarga, "limite": pagina.size,
+                                                            "deslocamento": pagina.offset})
+        itens = []
+        for posicao, l in enumerate(linhas, start=pagina.offset + 1):
+            item = linha_para_json(l)
+            item["posicao"] = posicao
+            item["pct_no_prazo"] = round(l["no_prazo"] / l["entregas"], 4) if l["entregas"] else None
+            itens.append(item)
+        return resposta_paginada(itens, pagina, total)
+
+    @rotas.get("/solicitacoes", tags=["cotação digitada"],
+               summary="Cargas compatíveis com a transportadora do usuário (tela Solicitações de frete)")
+    async def cargas_disponiveis(
+        todas: bool = Query(False, description="Inclui as encerradas em que a transportadora não cotou"),
+        pagina: Pagina = Depends(paginacao),
+        usuario: Usuario = Depends(exigir_perfis("transportadora")),
+    ):
+        async with db.transacao() as conn:
+            transportadora = await buscar_um(conn, """
+                SELECT id, tipos_carga, ufs_atendidas FROM transportadoras.transportadora WHERE empresa_id = %s
+            """, (usuario.empresa_id,))
+            if transportadora is None:
+                raise Problema(403, "SEM_TRANSPORTADORA", "Acesso negado",
+                               "A sua empresa não tem uma transportadora homologada.")
+            agora = await servico.relogio.agora(conn)
+            parametros = {"tid": transportadora["id"], "tipos": list(transportadora["tipos_carga"]),
+                          "ufs": list(transportadora["ufs_atendidas"]) if transportadora["ufs_atendidas"] else None,
+                          "todas": todas, "agora": agora, "limite": pagina.size, "deslocamento": pagina.offset}
+            total = (await buscar_um(conn, f"SELECT count(*) AS n FROM ({SQL_CARGAS}) x",
+                                     {**parametros, "limite": None, "deslocamento": 0}))["n"]
+            linhas = await buscar_todos(conn, SQL_CARGAS, parametros)
+        itens = []
+        for l in linhas:
+            item = linha_para_json(l)
+            item["situacao"] = situacao_da_carga(l, transportadora["id"], agora)
+            item["pode_cotar"] = item["situacao"] == "ACEITANDO_COTACOES"
+            itens.append(item)
+        return {**resposta_paginada(itens, pagina, total), "horaDoModulo": iso(agora)}
+
+    @rotas.post("/solicitacoes/{solicitacao_id}/cotacoes", tags=["cotação digitada"],
+                status_code=status.HTTP_201_CREATED, summary="Envia uma cotação digitada")
+    async def enviar_cotacao(solicitacao_id: str, dados: DadosCotacao,
+                             usuario: Usuario = Depends(exigir_perfis("transportadora"))):
+        async with db.transacao() as conn:
+            return await servico.cotar_manualmente(
+                conn, usuario.empresa_id, usuario.id, solicitacao_id, Decimal(str(dados.valor)),
+                dados.dataEntregaPrevista, dados.validaAte, dados.observacoes or None)
 
     # ------------------------------------------------------------------ transportadoras
     @rotas.get("", tags=["transportadoras"], summary="Lista as transportadoras homologadas")

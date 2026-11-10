@@ -85,4 +85,4 @@ app = FastAPI(
 registrar_tratadores(app)
 instalar_middleware(app, SERVICO)
 app.include_router(rotas_de_saude(SERVICO, {"banco": db.verificar, "kafka": kafka_pronto}))
-app.include_router(criar_rotas(db))
+app.include_router(criar_rotas(db, transportadoras))
