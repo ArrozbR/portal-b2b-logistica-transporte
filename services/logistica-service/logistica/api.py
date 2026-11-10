@@ -1,15 +1,17 @@
 """Rotas REST da logística.
 
-- Solicitações e cotações (consulta).
+- Solicitações, cotações e comparação (D6).
 - Escolha do frete pelo comprador ou botão "automático" (D5).
+- Entregas, rastreio, documentos demonstrativos (D21) e ocorrências.
 - Notificações do portal (D22).
 - Relógio do módulo (D18).
 """
 
+import uuid
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Body, Depends, Header, Query
+from fastapi import APIRouter, Body, Depends, Header, Query, Response
 from fastapi.responses import JSONResponse
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, model_validator
@@ -20,7 +22,11 @@ from comum.erros import Problema
 from comum.relogio import calcular_agora
 from comum.web import Pagina, paginacao, resposta_paginada
 
-from .servico import AUTOMATICO, ESCOLHA_COMPRADOR, Logistica, agora_real, iso, linha_para_json
+from .documentos import DocumentoIndisponivel
+from .documentos import gerar as gerar_documento
+from .notificacoes import notificar, texto_ocorrencia
+from .regras import CotacaoCandidata, preco_por_tonelada_km, selos
+from .servico import AUTOMATICO, ESCOLHA_COMPRADOR, Logistica, agora_real, iso, linha_para_json, para_json
 
 StatusSolicitacao = Literal["ABERTA", "COTADA", "SEM_COTACAO", "SELECIONADA", "INDISPONIVEL", "CANCELADA"]
 
@@ -66,6 +72,13 @@ class PedidoDeEscolha(BaseModel):
         if (self.cotacaoId is None) == (self.modo is None):
             raise ValueError("Informe cotacaoId ou modo AUTOMATICO (um dos dois, não os dois)")
         return self
+
+
+TipoDocumento = Literal["cte", "romaneio", "nota-fiscal", "comprovante-coleta"]
+
+
+class NovaOcorrencia(BaseModel):
+    descricao: str = Field(..., min_length=5, max_length=500, description="O que aconteceu")
 
 
 class AjusteDoRelogio(BaseModel):
@@ -182,6 +195,54 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                 return anterior
             raise
 
+    # ------------------------------------------------------------------ comparação (D6)
+    @rotas.get("/solicitacoes/{solicitacao_id}/comparacao", tags=["solicitações de frete"],
+               summary="Cotações lado a lado, com selos e a pontualidade de cada transportadora")
+    async def comparar(solicitacao_id: str, usuario: Usuario = Depends(leitores)):
+        condicao, parametros = _filtro_de_visibilidade(usuario)
+        async with db.transacao() as conn:
+            s = await buscar_um(conn, f"""
+                SELECT {CAMPOS_SOLICITACAO} FROM logistica.solicitacao_frete WHERE id = %s AND {condicao}
+            """, [solicitacao_id, *parametros])
+            if s is None:
+                raise _nao_encontrada(solicitacao_id)
+            cotacoes = await buscar_todos(conn, """
+                SELECT c.id, c.transportadora_id, c.transportadora_nome, c.preco, c.prazo_dias,
+                       c.data_entrega_prevista, c.valida_ate, c.origem_cotacao, c.observacoes, c.status, c.recebida_em,
+                       d.entregas, d.entregas_no_prazo, d.atraso_total_horas
+                  FROM logistica.cotacao c
+                  LEFT JOIN logistica.desempenho_transportadora d ON d.transportadora_id = c.transportadora_id
+                 WHERE c.solicitacao_id = %s ORDER BY c.preco, c.prazo_dias
+            """, (solicitacao_id,))
+            entrega = await buscar_um(conn, """
+                SELECT id FROM logistica.entrega WHERE solicitacao_id = %s AND status <> 'RECUSADA'
+                 ORDER BY tentativa DESC LIMIT 1
+            """, (solicitacao_id,))
+            hora = await logistica.relogio.agora(conn)
+
+        validas = [c for c in cotacoes if c["status"] == "VALIDA"]
+        pontualidade = {c["transportadora_id"]: c["entregas_no_prazo"] / c["entregas"]
+                        for c in cotacoes if c["entregas"]}
+        candidatas = [CotacaoCandidata(c["id"], c["transportadora_id"], c["preco"], c["prazo_dias"]) for c in validas]
+        selos_por_cotacao = selos(candidatas, pontualidade)
+        itens = []
+        for c in cotacoes:
+            item = linha_para_json({k: v for k, v in c.items()
+                                    if k not in ("entregas", "entregas_no_prazo", "atraso_total_horas")})
+            item["preco_t_km"] = para_json(preco_por_tonelada_km(c["preco"], s["peso_kg"], s["distancia_km"]))
+            item["selos"] = selos_por_cotacao.get(c["id"], [])
+            item["escolhida"] = c["id"] == s["cotacao_escolhida_id"]
+            item["desempenho"] = {
+                "entregas": c["entregas"] or 0,
+                "pct_no_prazo": round(c["entregas_no_prazo"] / c["entregas"], 4) if c["entregas"] else None,
+                "atraso_medio_horas": round(float(c["atraso_total_horas"]) / c["entregas"], 1) if c["entregas"] else None,
+            }
+            itens.append(item)
+        pode_escolher = (s["status"] == "COTADA" and hora <= s["prazo_decisao_em"]
+                         and usuario.perfil in ("comprador", "admin"))
+        return {"solicitacao": linha_para_json(s), "cotacoes": itens, "podeEscolher": pode_escolher,
+                "entregaId": entrega["id"] if entrega else None, "horaDoModulo": iso(hora)}
+
     # ------------------------------------------------------------------ entregas e rastreio
     def filtro_entrega(usuario: Usuario) -> tuple[str, list]:
         condicao, parametros = _filtro_de_visibilidade(usuario)
@@ -242,6 +303,10 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                   FROM logistica.evento_rastreio WHERE entrega_id = %s ORDER BY sequencia
             """, (entrega_id,))
             hora = await logistica.relogio.agora(conn)
+            ocorrencias = await buscar_todos(conn, """
+                SELECT id, autor_papel, descricao, ocorrida_em FROM logistica.ocorrencia
+                 WHERE entrega_id = %s ORDER BY ocorrida_em
+            """, (entrega_id,))
         posicao = ({"lat": float(e["posicao_lat"]), "lon": float(e["posicao_lon"])}
                    if e["posicao_lat"] is not None else None)
         return {
@@ -255,6 +320,7 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                         "lat": float(e["destino_lat"]), "lon": float(e["destino_lon"])},
             "rota": e["rota"] or [],
             "eventos": [linha_para_json(ev) for ev in eventos],
+            "ocorrencias": [linha_para_json(o) for o in ocorrencias],
             "horaDoModulo": iso(hora),
         }
 
@@ -271,6 +337,58 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                 raise Problema(404, "ENTREGA_NAO_ENCONTRADA", "Entrega não encontrada",
                                f"O pedido {pedido_id} ainda não tem entrega visível para você.")
             return linha_para_json(await obter_entrega_visivel(conn, linha["id"], usuario))
+
+    # ------------------------------------------------------------------ documentos (D21)
+    @rotas.get("/entregas/{entrega_id}/documentos/{tipo}", tags=["entregas e rastreio"],
+               summary="Documento demonstrativo em PDF (sem valor fiscal)",
+               responses={200: {"content": {"application/pdf": {}}}})
+    async def documento(entrega_id: str, tipo: TipoDocumento, usuario: Usuario = Depends(leitores)):
+        async with db.transacao() as conn:
+            entrega = await obter_entrega_visivel(conn, entrega_id, usuario)
+            hora = await logistica.relogio.agora(conn)
+        try:
+            pdf = gerar_documento(tipo, entrega, hora)
+        except DocumentoIndisponivel as exc:
+            raise Problema(409, "DOCUMENTO_INDISPONIVEL", "Documento ainda não disponível", str(exc))
+        nome = f"{tipo}-{entrega['pedido_id']}.pdf"
+        return Response(pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{nome}"'})
+
+    # ------------------------------------------------------------------ ocorrências
+    @rotas.post("/entregas/{entrega_id}/ocorrencias", tags=["entregas e rastreio"], status_code=201,
+                summary="Reporta uma ocorrência na entrega (comprador ou fornecedor)")
+    async def reportar_ocorrencia(entrega_id: str, corpo: NovaOcorrencia,
+                                  usuario: Usuario = Depends(exigir_perfis("comprador", "fornecedor"))):
+        async with db.transacao() as conn:
+            entrega = await obter_entrega_visivel(conn, entrega_id, usuario)
+            if entrega["status"] in ("CANCELADA", "RECUSADA"):
+                raise Problema(409, "ENTREGA_ENCERRADA", "Entrega encerrada",
+                               f"A entrega está {entrega['status']} e não aceita ocorrências.")
+            hora = await logistica.relogio.agora(conn)
+            linha = await buscar_um(conn, """
+                INSERT INTO logistica.ocorrencia (id, entrega_id, pedido_id, autor_id, autor_papel, descricao, ocorrida_em)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, autor_papel, descricao, ocorrida_em
+            """, (str(uuid.uuid4()), entrega_id, entrega["pedido_id"], usuario.id, usuario.perfil,
+                  corpo.descricao.strip(), hora))
+            await conn.execute("UPDATE logistica.entrega SET com_ocorrencia = TRUE, atualizado_em = now() "
+                               "WHERE id = %s", (entrega_id,))
+            outro = (entrega["fornecedor_id"], "fornecedor") if usuario.perfil == "comprador" \
+                else (entrega["comprador_id"], "comprador")
+            await notificar(conn, empresa_id=outro[0], papel=outro[1], tipo="OCORRENCIA",
+                            texto=texto_ocorrencia(entrega["pedido_id"], usuario.perfil, corpo.descricao.strip()),
+                            pedido_id=entrega["pedido_id"], solicitacao_id=entrega["solicitacao_id"], agora=hora)
+        return linha_para_json(linha)
+
+    @rotas.get("/entregas/{entrega_id}/ocorrencias", tags=["entregas e rastreio"], summary="Ocorrências da entrega")
+    async def listar_ocorrencias(entrega_id: str, usuario: Usuario = Depends(leitores)):
+        async with db.transacao() as conn:
+            await obter_entrega_visivel(conn, entrega_id, usuario)
+            linhas = await buscar_todos(conn, """
+                SELECT id, autor_papel, descricao, ocorrida_em FROM logistica.ocorrencia
+                 WHERE entrega_id = %s ORDER BY ocorrida_em
+            """, (entrega_id,))
+        return {"items": [linha_para_json(l) for l in linhas]}
 
     # ------------------------------------------------------------------ notificações
     @rotas.get("/notificacoes", tags=["notificações"], summary="Notificações da empresa do usuário")

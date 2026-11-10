@@ -16,6 +16,7 @@ dependencies = [
     "PyJWT>=2.9",
     "jsonschema>=4.23",
     "prometheus-client>=0.21",
+    "fpdf2>=2.7",
 ]
 
 [project.optional-dependencies]

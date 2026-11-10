@@ -80,6 +80,11 @@ def texto_entrega_realizada(pedido_id: str, entregue_em: datetime, no_prazo: boo
             f"O pedido {pedido_id} foi entregue em {data_hora(entregue_em)}, {situacao}.")
 
 
+def texto_ocorrencia(pedido_id: str, quem: str, descricao: str) -> tuple[str, str]:
+    return ("Ocorrência na entrega",
+            f"O {quem} reportou uma ocorrência na entrega do pedido {pedido_id}: \"{descricao[:200]}\"")
+
+
 async def notificar(conn: AsyncConnection, *, empresa_id: str, papel: str, tipo: str, texto: tuple[str, str],
                     pedido_id: str | None, solicitacao_id: str | None, agora: datetime) -> None:
     titulo, mensagem = texto
