@@ -14,6 +14,7 @@
     "compradorId": { "type": "string", "minLength": 1 },
     "fornecedorId": { "type": "string", "minLength": 1 },
     "produtoId": { "type": "string", "minLength": 1 },
+    "fornecimentoId": { "type": "string", "minLength": 1, "description": "Oferta de onde sai a carga. Pedido do grupo de Fornecimento e Produtos; a logística não usa" },
     "produtoNome": { "type": "string", "minLength": 1 },
     "quantidade": { "type": "number", "exclusiveMinimum": 0 },
     "unidade": { "enum": ["KG", "TON", "UN", "CX", "L"] },

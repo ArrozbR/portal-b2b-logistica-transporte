@@ -38,6 +38,7 @@ def montar_payload(args: argparse.Namespace) -> dict:
         "compradorId": args.comprador,
         "fornecedorId": args.fornecedor,
         "produtoId": args.produto_id,
+        "fornecimentoId": f"forn-{uuid.uuid4().hex[:8]}",  # pedido do grupo de Fornecimento e Produtos
         "produtoNome": args.produto,
         "quantidade": args.peso,
         "unidade": "KG",
