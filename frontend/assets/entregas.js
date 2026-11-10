@@ -61,6 +61,7 @@
 
   Portal.iniciar({
     ativo: 'entregas',
+    perfis: ['comprador', 'fornecedor', 'admin'],
     aoEntrar() {
       document.getElementById('filtros').addEventListener('click', (ev) => {
         const botao = ev.target.closest('button[data-filtro]');

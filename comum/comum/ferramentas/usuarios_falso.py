@@ -25,6 +25,8 @@ USUARIOS = [
      "empresaId": "emp-comprador-1", "empresaNome": "AgroBrasil Compras"},
     {"id": "usr-fornecedor-1", "nome": "Maria Souza", "perfil": "fornecedor",
      "empresaId": "emp-fornecedor-1", "empresaNome": "Fazenda Boa Safra"},
+    {"id": "usr-transp-rodovia", "nome": "Rafael Moreira", "perfil": "transportadora",
+     "empresaId": "emp-transp-rodovia", "empresaNome": "Rodovia Sul Transportes"},
     {"id": "usr-transp-expressa", "nome": "Carla Expressa", "perfil": "transportadora",
      "empresaId": "emp-transp-expressa", "empresaNome": "Expressa Cargas Rápidas"},
     {"id": "usr-admin", "nome": "Administrador", "perfil": "admin",

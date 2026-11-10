@@ -252,8 +252,95 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 .tela-login .opcao-usuario { border: 1px solid var(--borda); padding: 12px; }
 .tela-login .opcao-usuario:hover { border-color: var(--verde); background: var(--verde-fundo); }
 
+/* ------------------------------------------------------------ janela de diálogo */
+.modal-fundo { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: grid; place-items: center; z-index: 2500; padding: 20px; }
+.modal { width: min(520px, 100%); padding: 22px 24px; }
+.modal h2 { margin: 0 0 12px; font-size: 18px; }
+.cartao.modal > h2, .cartao.painel-cotacao > h2 { padding: 0; } /* o cartão já tem o espaçamento */
+.modal-corpo { color: var(--texto); line-height: 1.5; }
+.modal-acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* ------------------------------------------------------------ formulários */
+.campo { display: grid; gap: 6px; margin-bottom: 14px; }
+.campo label { font-weight: 600; font-size: 13px; }
+.campo label .obrigatorio { color: var(--vermelho); }
+.campo input, .campo select, .campo textarea {
+  font: inherit; color: var(--texto); background: var(--cartao); border: 1px solid #d1d5db; border-radius: 10px; padding: 10px 12px; width: 100%;
+}
+.campo input:focus, .campo select:focus, .campo textarea:focus { outline: 2px solid var(--verde); outline-offset: 0; border-color: var(--verde); }
+.campo textarea { min-height: 90px; resize: vertical; }
+.campo .ajuda { font-size: 12px; color: var(--texto-suave); }
+.campo .com-prefixo { display: flex; }
+.campo .com-prefixo span { display: grid; place-items: center; padding: 0 12px; background: var(--fundo); border: 1px solid #d1d5db; border-right: 0; border-radius: 10px 0 0 10px; color: var(--texto-suave); }
+.campo .com-prefixo input { border-radius: 0 10px 10px 0; }
+.campo.invalido input, .campo.invalido textarea { border-color: var(--vermelho); }
+.campo .erro-campo { color: var(--vermelho); font-size: 12px; }
+.linha-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.botao.pequeno { padding: 6px 10px; font-size: 13px; }
+.botao.perigo { color: #991b1b; border-color: #fecaca; background: #fff; }
+.botao.largo { width: 100%; justify-content: center; padding: 13px 16px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f3f4f6; color: #374151; }
+.chip.verde { background: var(--verde-claro); color: var(--verde-texto); }
+.chip.azul { background: var(--azul-claro); color: var(--azul-texto); }
+.chip.ambar { background: var(--ambar-claro); color: #92400e; }
+.chip.roxo { background: #ede9fe; color: #5b21b6; }
+
+/* ------------------------------------------------------------ comparação de cotações */
+.faixa-info { display: flex; flex-wrap: wrap; gap: 10px 28px; padding: 16px 20px; margin-bottom: 18px; }
+.faixa-info div small { display: block; color: var(--texto-suave); margin-bottom: 2px; }
+.faixa-info div strong { font-size: 15px; }
+.grade-comparacao { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 18px; align-items: start; }
+.lista-cotacoes { display: grid; gap: 12px; }
+.cotacao { padding: 16px 18px; display: grid; grid-template-columns: 1fr auto; gap: 10px 18px; align-items: center; border-width: 1px; }
+.cotacao.recomendada { border-color: var(--verde); box-shadow: 0 0 0 3px var(--verde-fundo), var(--sombra); }
+.cotacao.escolhida { border-color: var(--verde-escuro); background: var(--verde-fundo); }
+.cotacao.inativa { opacity: .6; }
+.cotacao h3 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cotacao .preco { font-size: 22px; font-weight: 700; letter-spacing: -.02em; text-align: right; }
+.cotacao .metricas { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--texto-suave); font-size: 13px; margin-top: 8px; }
+.cotacao .metricas b { color: var(--texto); font-weight: 600; }
+.cotacao .obs { grid-column: 1 / -1; font-size: 13px; color: var(--texto-suave); background: var(--fundo); padding: 8px 10px; border-radius: 8px; }
+.cotacao .acao { grid-column: 2; text-align: right; }
+.pontualidade { display: inline-flex; align-items: center; gap: 6px; }
+.pontualidade .barra { width: 70px; height: 6px; }
+.grafico { padding: 0 16px 16px; }
+.grafico svg { width: 100%; height: auto; display: block; }
+.grafico .eixo { stroke: #d1d5db; stroke-width: 1; }
+.grafico .grade { stroke: #f1f5f9; stroke-width: 1; }
+.grafico text { font: 11px Inter, "Segoe UI", system-ui, sans-serif; fill: var(--texto-suave); }
+.grafico text.rotulo { fill: var(--texto); font-weight: 600; }
+.grafico circle { stroke: #fff; stroke-width: 2; }
+.grafico .legenda-grafico { display: flex; gap: 14px; font-size: 12px; color: var(--texto-suave); padding: 4px 4px 0; flex-wrap: wrap; }
+.grafico .legenda-grafico i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.prazo-escolha { font-weight: 700; }
+.prazo-escolha.urgente { color: var(--ambar); }
+
+/* ------------------------------------------------------------ solicitações de frete (transportadora) */
+.grade-fretes { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+.busca { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; padding: 16px; margin-bottom: 18px; align-items: end; }
+.busca .campo { margin: 0; }
+.tabela tbody tr.selecionada { background: var(--verde-fundo); box-shadow: inset 3px 0 0 var(--verde); }
+.painel-cotacao { position: sticky; top: 84px; padding: 20px; }
+.painel-cotacao h2 { margin: 0 0 4px; font-size: 20px; }
+.painel-cotacao > p { margin: 0 0 16px; color: var(--texto-suave); }
+.detalhe-carga { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; padding: 14px; border: 1px solid var(--borda); border-radius: 12px; margin-bottom: 16px; font-size: 13px; }
+.detalhe-carga dt { color: var(--texto-suave); }
+.detalhe-carga dd { margin: 0; font-weight: 600; text-align: right; }
+.contador-caracteres { text-align: right; font-size: 12px; color: var(--texto-suave); }
+
+/* ------------------------------------------------------------ ranking e frota */
+.posicao { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--fundo); font-weight: 700; }
+.posicao.ouro { background: #fef3c7; color: #92400e; }
+.grade-frota { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.cartao .cabecalho-cartao { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px 12px; }
+.cartao .cabecalho-cartao h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+.cartao .cabecalho-cartao h2 svg { color: var(--verde-escuro); width: 20px; height: 20px; }
+
 /* ------------------------------------------------------------ telas menores */
 @media (max-width: 1200px) {
+  .grade-fretes, .grade-comparacao { grid-template-columns: 1fr; }
+  .painel-cotacao { position: static; }
   .resumo { grid-template-columns: repeat(3, 1fr); }
   .resumo > div:nth-child(3) { border-right: 0; }
   .resumo > div:nth-child(-n+3) { border-bottom: 1px solid var(--borda); }
@@ -267,4 +354,7 @@ svg.icone { width: 18px; height: 18px; flex: none; }
   .conteudo, .topo { padding-left: 16px; padding-right: 16px; }
   .relogio .velocidades { display: none; }
   .tabela .opcional { display: none; }
+  .busca { grid-template-columns: 1fr; }
+  .cotacao { grid-template-columns: 1fr; }
+  .cotacao .preco, .cotacao .acao { text-align: left; grid-column: 1; }
 }

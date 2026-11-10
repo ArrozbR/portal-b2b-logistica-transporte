@@ -106,6 +106,7 @@ const Portal = (() => {
     },
     toneladas: (kg) => `${(Number(kg) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} t`,
     porcentagem: (p) => `${Math.round(Number(p || 0) * 100)}%`,
+    precoTkm: (v) => (v == null ? '—' : `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}/t·km`),
     relativo(isoAlvo, isoAgora) {
       if (!isoAlvo || !isoAgora) return '';
       const minutos = Math.round((new Date(isoAlvo) - new Date(isoAgora)) / 60000);
@@ -131,18 +132,73 @@ const Portal = (() => {
   };
 
   // ------------------------------------------------------------------ estrutura da página
+  // Menu de cada perfil. A transportadora vê as cargas para cotar e a frota;
+  // comprador, fornecedor e administrador acompanham solicitações e entregas.
+  const MENUS = {
+    transportadora: [
+      ['fretes', 'fretes.html', 'lista', 'Solicitações de frete'],
+      ['frota', 'frota.html', 'usuario', 'Minha frota'],
+      ['transportadoras', 'transportadoras.html', 'balanca', 'Ranking'],
+    ],
+    outros: [
+      ['solicitacoes', 'solicitacoes.html', 'lista', 'Solicitações de frete'],
+      ['entregas', 'index.html', 'caminhao', 'Entregas'],
+      ['transportadoras', 'transportadoras.html', 'balanca', 'Transportadoras'],
+    ],
+  };
+  const inicioDoPerfil = (perfil) => (perfil === 'transportadora' ? 'fretes.html' : 'solicitacoes.html');
+
   function montarLateral(ativo) {
-    const item = (id, href, ic, texto) => (href
-      ? `<li><a href="${href}" class="${ativo === id ? 'ativo' : ''}">${icone(ic)}${texto}</a></li>`
-      : `<li><span class="desligado">${icone(ic)}${texto}<small>em breve</small></span></li>`);
+    const s = sessao();
+    const itens = MENUS[s && s.usuario.perfil === 'transportadora' ? 'transportadora' : 'outros'];
     document.getElementById('lateral').innerHTML = `
       <div class="marca">${icone('folha', '')}<span>Portal B2B</span></div>
       <ul class="menu">
-        ${item('entregas', 'index.html', 'caminhao', 'Entregas')}
-        ${item('solicitacoes', null, 'lista', 'Solicitações de frete')}
-        ${item('transportadoras', null, 'balanca', 'Transportadoras')}
+        ${itens.map(([id, href, ic, texto]) => `<li><a href="${href}" class="${ativo === id ? 'ativo' : ''}">${icone(ic)}${texto}</a></li>`).join('')}
       </ul>
       <div class="rodape">Grupo 5 · Logística e Transporte<br>Ambiente de desenvolvimento</div>`;
+  }
+
+  // ------------------------------------------------------------------ janela de diálogo (no lugar de confirm())
+  function modal({ titulo, conteudo, botoes = [] }) {
+    const fundo = document.createElement('div');
+    fundo.className = 'modal-fundo';
+    fundo.innerHTML = `<div class="cartao modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+      <h2 id="modal-titulo">${escapar(titulo)}</h2><div class="modal-corpo">${conteudo}</div>
+      <div class="modal-acoes">${botoes.map((b, i) => `<button type="button" class="botao ${b.classe || ''}" data-i="${i}">${escapar(b.texto)}</button>`).join('')}</div></div>`;
+    const fechar = () => fundo.remove();
+    fundo.addEventListener('click', (ev) => { if (ev.target === fundo) fechar(); });
+    document.addEventListener('keydown', function esc(ev) {
+      if (ev.key === 'Escape') { fechar(); document.removeEventListener('keydown', esc); }
+    });
+    fundo.querySelectorAll('.modal-acoes button').forEach((b) => b.addEventListener('click', async () => {
+      const acao = botoes[Number(b.dataset.i)].acao;
+      if (!acao) { fechar(); return; }
+      b.disabled = true;
+      try { if ((await acao(fundo)) !== false) fechar(); } finally { b.disabled = false; }
+    }));
+    document.body.appendChild(fundo);
+    const primeiro = fundo.querySelector('input, textarea, select, .modal-acoes .primario');
+    if (primeiro) primeiro.focus();
+    return { fechar, elemento: fundo };
+  }
+
+  // ------------------------------------------------------------------ download autenticado (PDF)
+  async function baixar(caminho, nomeArquivo) {
+    const s = sessao();
+    const resposta = await fetch(caminho, { headers: s ? { Authorization: `Bearer ${s.token}` } : {} });
+    if (!resposta.ok) {
+      const problema = await resposta.json().catch(() => ({ title: 'Erro', detail: `HTTP ${resposta.status}` }));
+      throw new ErroApi({ ...problema, status: resposta.status });
+    }
+    const url = URL.createObjectURL(await resposta.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = nomeArquivo;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
   function montarTopo() {
@@ -268,7 +324,15 @@ const Portal = (() => {
   async function entrarComo(usuarioId) {
     const r = await api('/api/v1/usuarios/demonstracao/login', { metodo: 'POST', corpo: { usuarioId } });
     salvarSessao({ token: r.accessToken, usuario: r.usuario });
-    location.reload();
+    // Troca de perfil: a página atual pode não servir para o novo perfil.
+    const pagina = location.pathname.split('/').pop() || 'index.html';
+    const daTransportadora = ['fretes.html', 'frota.html'].includes(pagina);
+    const ehTransportadora = r.usuario.perfil === 'transportadora';
+    if (pagina !== 'transportadoras.html' && daTransportadora !== ehTransportadora) {
+      location.href = inicioDoPerfil(r.usuario.perfil);
+    } else {
+      location.reload();
+    }
   }
 
   async function alternarMenuUsuario() {
@@ -301,12 +365,20 @@ const Portal = (() => {
   }
 
   // ------------------------------------------------------------------ início
-  function iniciar({ ativo, aoEntrar }) {
+  function iniciar({ ativo, perfis, aoEntrar }) {
     montarLateral(ativo);
-    if (!sessao()) { mostrarLogin(); return; }
+    const s = sessao();
+    if (!s) { mostrarLogin(); return; }
+    if (perfis && !perfis.includes(s.usuario.perfil)) {
+      location.replace(inicioDoPerfil(s.usuario.perfil));
+      return;
+    }
     montarTopo();
-    aoEntrar(sessao());
+    aoEntrar(s);
   }
 
-  return { iniciar, api, icone, escapar, erroHtml, formato, pilulaStatus, STATUS_ENTREGA, relogio, sessao, avisoRapido };
+  return {
+    iniciar, api, icone, escapar, erroHtml, formato, pilulaStatus, STATUS_ENTREGA, relogio, sessao, avisoRapido,
+    modal, baixar, inicioDoPerfil,
+  };
 })();

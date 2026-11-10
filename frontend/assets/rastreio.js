@@ -28,7 +28,7 @@
       <div class="cabecalho">
         <div><h1 id="titulo">Entrega</h1><p>Acompanhe o transporte e os eventos da entrega em tempo real.</p></div>
         <div class="acoes">
-          <button type="button" class="botao primario" disabled title="Disponível na próxima etapa">${icone('alerta')} Reportar ocorrência</button>
+          <button type="button" class="botao primario" id="reportar" hidden>${icone('alerta')} Reportar ocorrência</button>
         </div>
       </div>
       <div id="mensagem"></div>
@@ -89,7 +89,13 @@
 
   // ------------------------------------------------------------------ linha do tempo
   function linhaDoTempo(e, r) {
-    const eventos = r.eventos.filter((ev, i, todos) => ev.tipo !== 'POSICAO' || todos.findIndex((x) => x.tipo === 'POSICAO') === i);
+    // Ocorrências reportadas por comprador ou fornecedor entram na linha do tempo, na ordem do horário.
+    const ocorrencias = (r.ocorrencias || []).map((o) => ({
+      tipo: 'OCORRENCIA', ocorrido_em: o.ocorrida_em,
+      descricao: `Reportada pelo ${o.autor_papel}: ${o.descricao}`,
+    }));
+    const eventos = [...r.eventos.filter((ev, i, todos) => ev.tipo !== 'POSICAO' || todos.findIndex((x) => x.tipo === 'POSICAO') === i),
+      ...ocorrencias].sort((a, b) => new Date(a.ocorrido_em) - new Date(b.ocorrido_em));
     const encerrada = ['ENTREGUE', 'CANCELADA', 'RECUSADA'].includes(e.status);
     const itens = eventos.map((ev, i) => {
       const ultimo = i === eventos.length - 1 && !encerrada;
@@ -144,11 +150,43 @@
       ? 'A transportadora recusou a viagem por falta de frota livre.'
       : 'A transportadora ainda está escalando o motorista e o veículo.'}</dd>`;
 
-    const docs = [['CT-e', 'Conhecimento de transporte'], ['Romaneio de carga', 'Lista da carga'],
-      ['Nota fiscal', 'Emitida pelo fornecedor'], ['Comprovante de coleta', 'Após a coleta']];
-    document.getElementById('documentos').innerHTML = docs.map(([nome, sub]) => `
-      <li><span class="arquivo">${icone('arquivo')}</span><span><strong>${nome}</strong><small>${sub} · modelo demonstrativo</small></span>
-      <button type="button" disabled title="Os modelos de documento entram na próxima etapa" aria-label="Baixar ${nome}">${icone('download')}</button></li>`).join('');
+    const docs = [['cte', 'CT-e', 'Conhecimento de transporte'], ['romaneio', 'Romaneio de carga', 'Lista da carga'],
+      ['nota-fiscal', 'Nota fiscal', 'Emitida pelo fornecedor'], ['comprovante-coleta', 'Comprovante de coleta', 'Após a coleta']];
+    const lista = document.getElementById('documentos');
+    lista.innerHTML = docs.map(([tipo, nome, sub]) => {
+      const disponivel = tipo !== 'comprovante-coleta' || e.coletada_em;
+      return `<li><span class="arquivo">${icone('arquivo')}</span><span><strong>${nome}</strong><small>${sub} · PDF demonstrativo, sem valor fiscal</small></span>
+        <button type="button" data-documento="${tipo}" ${disponivel ? '' : 'disabled title="Disponível depois da coleta"'} aria-label="Baixar ${nome}">${icone('download')}</button></li>`;
+    }).join('');
+    lista.querySelectorAll('[data-documento]').forEach((b) => b.addEventListener('click', async () => {
+      try {
+        await Portal.baixar(`/api/v1/logistica/entregas/${encodeURIComponent(entregaId)}/documentos/${b.dataset.documento}`,
+          `${b.dataset.documento}-${e.pedido_id}.pdf`);
+      } catch (erro) { Portal.avisoRapido(erro.message, true); }
+    }));
+  }
+
+  // ------------------------------------------------------------------ ocorrência
+  function reportarOcorrencia() {
+    Portal.modal({
+      titulo: 'Reportar ocorrência',
+      conteudo: `<p class="suave" style="margin-top:0">Descreva o problema (avaria, atraso sem aviso, divergência na carga...).
+        A outra parte do pedido é avisada.</p>
+        <div class="campo"><label for="ocorrencia">O que aconteceu? <span class="obrigatorio">*</span></label>
+        <textarea id="ocorrencia" maxlength="500" minlength="5"></textarea></div><div id="erro-modal"></div>`,
+      botoes: [{ texto: 'Cancelar' }, {
+        texto: 'Enviar', classe: 'primario', async acao(janela) {
+          try {
+            await api(`/api/v1/logistica/entregas/${encodeURIComponent(entregaId)}/ocorrencias`, {
+              metodo: 'POST', corpo: { descricao: janela.querySelector('#ocorrencia').value.trim() },
+            });
+            Portal.avisoRapido('Ocorrência registrada.');
+            carregar();
+            return true;
+          } catch (erro) { janela.querySelector('#erro-modal').innerHTML = erroHtml(erro); return false; }
+        },
+      }],
+    });
   }
 
   // ------------------------------------------------------------------ mapa
@@ -249,6 +287,9 @@
       resumo(e, r);
       linhaDoTempo(e, r);
       detalhes(e);
+      const podeReportar = ['comprador', 'fornecedor'].includes(Portal.sessao().usuario.perfil)
+        && !['CANCELADA', 'RECUSADA'].includes(e.status);
+      document.getElementById('reportar').hidden = !podeReportar;
       try { atualizarMapa(e, r); } catch (erroMapa) { console.error(erroMapa); mapaEmTexto(e, r); }
     } catch (erro) {
       document.getElementById('mensagem').innerHTML = erroHtml(erro);
@@ -257,6 +298,7 @@
 
   Portal.iniciar({
     ativo: 'entregas',
+    perfis: ['comprador', 'fornecedor', 'admin'],
     aoEntrar() {
       if (!entregaId) {
         document.getElementById('conteudo').innerHTML = `<a class="voltar" href="index.html">${icone('seta')} Voltar para entregas</a>
@@ -264,6 +306,7 @@
         return;
       }
       esqueleto();
+      document.getElementById('reportar').addEventListener('click', reportarOcorrencia);
       carregar();
       setInterval(carregar, 5000);
     },
