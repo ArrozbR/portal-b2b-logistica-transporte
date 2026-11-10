@@ -149,7 +149,11 @@ A logística não cancela o pedido: ela **avisa** que não há frete, e quem can
 
 ### D16. Stack
 
-**Decisão:** Python 3.12, FastAPI, `aiokafka`, `psycopg2` (pool de até 5 conexões), `pytest` com `httpx`; telas em HTML, JavaScript e Leaflet. O código é gerado por IA, com conhecimento do professor (P5).
+**Decisão:** Python 3.12, FastAPI, `aiokafka`, `psycopg` 3 com `psycopg_pool` (pool de até 5 conexões), `pytest` com `httpx`; telas em HTML, JavaScript e Leaflet. O código é gerado por IA, com conhecimento do professor (P5).
+
+**Mudança em relação ao kit (etapa 1):** o kit usa `psycopg2`, que é **síncrono**. Os serviços são assíncronos (FastAPI e `aiokafka` rodam num laço só), e cada consulta do `psycopg2` pararia o processo inteiro até o banco responder, inclusive o consumidor do Kafka. O `psycopg` 3 é a versão nova da mesma biblioteca e tem modo assíncrono. Não muda nada para os outros grupos.
+
+O código compartilhado fica no pacote `comum/`, instalado nas imagens dos dois serviços, em vez da pasta `common/` do kit (que não entrava na imagem, K4).
 
 ### D17. Ordem e divisão
 

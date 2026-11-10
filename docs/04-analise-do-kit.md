@@ -42,3 +42,29 @@ O grupo de Fornecimento e Produtos analisou o kit no [Relatório Técnico](https
 ## 3. Conclusão
 
 Os boilerplates servem como ponto de partida para estrutura de pastas, middleware de `X-Correlation-Id`, tratamento RFC 7807 e envelope de eventos. O resto (consumo de eventos, persistência, janela de cotação, RBAC, paginação) precisa ser escrito. A proposta é copiar o boilerplate e a pasta `common` para este repositório, aplicar as correções acima e registrar cada uma no relatório técnico, como fez o grupo de Fornecimento e Produtos.
+
+## 4. O que já foi corrigido no nosso código
+
+Na etapa 1, o código foi escrito do zero no pacote `comum/` e nos dois serviços, seguindo o kit nas convenções (rotas, envelope, erros, portas, schemas) e corrigindo os problemas acima:
+
+| Item | Como ficou | Onde |
+|---|---|---|
+| K1 | GRANTs depois do `CREATE TABLE`, mais `ALTER DEFAULT PRIVILEGES` | `services/*/migracoes/001_estrutura.sql` |
+| K2 | Cada serviço conecta com o seu `svc_*` | `docker-compose.yml`, `comum/comum/db.py` |
+| K3 | `aiokafka` é dependência; falha de conexão é tentada de novo, não engolida | `comum/pyproject.toml`, `comum/comum/kafka.py` |
+| K4 | Código compartilhado é um pacote instalado na imagem; build a partir da raiz | `comum/`, `services/*/Dockerfile` |
+| K5 | `processed_events` no banco, na mesma transação da alteração | `comum/comum/consumidor.py` |
+| K6 | Um produtor por processo; publicação pela outbox | `comum/comum/kafka.py`, `comum/comum/outbox.py` |
+| K8 | Token sem perfil devolve 403 | `comum/comum/auth.py` |
+| K9 | `timestamp` no corpo e 422 de validação em RFC 7807 | `comum/comum/erros.py` |
+| K10 | `/health/ready` testa banco e Redpanda; `/metrics` com métricas reais | `comum/comum/web.py` |
+| L1 | Consumidores Kafka de `pedido_criado`, `cotacao_recebida` e `solicitacao_frete_criada` | `services/*/.../main.py` |
+| L4 | Rotina de prazos a cada segundo nas duas cópias, com `FOR UPDATE SKIP LOCKED` | `logistica/servico.py` |
+| L5 | Cotação e escolha conferem o status; escolha com gravação condicional | `logistica/servico.py` |
+| L6 | Desempate final por pontualidade e `transportadoraId` | `logistica/regras.py` |
+| L7 | Motor de cotação por distância, peso e tipo de carga, com filtro de compatibilidade | `transportadoras/cotacao.py` |
+| L8 | Tabelas com origem, destino, carga, peso e unicidade das cotações | `services/*/migracoes/` |
+| L9 | JWT obrigatório e perfis por rota | `comum/comum/auth.py`, `*/api.py` |
+| L10 | Listagens paginadas, `size > 100` → 422 | `comum/comum/web.py` |
+
+Ficam para as próximas etapas: L2 e L15 (escolha pelo comprador, etapa 2), L12 (depende do grupo de Pedidos), L13 e L14 (telas, etapas 3 e 4).

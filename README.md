@@ -2,7 +2,7 @@
 
 Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuído, trabalho da disciplina de Sistemas Distribuídos (2026). O grupo cuida do que acontece depois que o pedido é criado: cotar o frete com as transportadoras, comparar as propostas, escolher a vencedora e acompanhar a entrega num mapa até a chegada.
 
-> **Situação:** decisões tomadas, ainda sem código. Próximo passo: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos e definir os responsáveis. **Comece pela [Pauta de decisões](docs/06-pauta-de-decisoes.md).**
+> **Situação:** etapa 1 concluída e validada no Docker: um pedido entra e o frete é escolhido sozinho, com idempotência, DLT e duas cópias de cada serviço. Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
 
 ## Integrantes
 
@@ -66,26 +66,41 @@ flowchart LR
 | [portal-b2b-UI-UX](https://github.com/HugoParzival007/portal-b2b-UI-UX) | UX/UI | Mockups das telas de fretes e de rastreamento, que a nossa API precisa alimentar |
 | [AED---Processo-e-Artefato-SD-](https://github.com/AmandaBfa/AED---Processo-e-Artefato-SD-) | Teste e Qualidade | Modelo ERS-LLM para as especificações dos serviços, que o QA usa para testar |
 
-## Como subir o ambiente
+## Como rodar
 
-O ambiente local vem do kit. É preciso ter Docker e Docker Compose.
+O repositório tem um ambiente de desenvolvimento próprio (`docker-compose.yml`): Postgres, Redpanda, Redpanda Console e as **duas cópias** de cada serviço, como no kit. As portas não conflitam com as do kit. É preciso ter o Docker Desktop aberto.
 
 ```bash
-git clone https://github.com/Printf-PedroCardoso/portal-b2b-kit-infra
-cd portal-b2b-kit-infra
-make env        # copia .env.example para .env
-make infra-up   # PostgreSQL, Redpanda, gateway, PgAdmin e Kafka UI
+cp .env.example .env               # opcional: troque as senhas
+docker compose up -d --build       # sobe tudo
+docker compose ps                  # aguarde tudo ficar healthy/running
+
+# publica um pedido falso (Sorriso/MT → Santos/SP, 24 t de soja)
+docker compose exec logistica-1 python -m comum.ferramentas.publicar_pedido_falso
+
+docker compose logs -f logistica-1 transportadoras-1
+docker compose down -v             # derruba e apaga os dados
 ```
 
 | Ferramenta | Endereço |
 |---|---|
-| Gateway (APIs e front-ends) | http://localhost:8080 |
-| Kafka UI | http://localhost:8090 |
-| PgAdmin | http://localhost:5050 |
-| Redpanda (clientes Kafka) | localhost:19092 |
-| PostgreSQL | localhost:5432 |
+| Logística (cópias 1 e 2) | http://localhost:8108/docs e http://localhost:8118/docs |
+| Transportadoras (cópias 1 e 2) | http://localhost:8109/docs e http://localhost:8119/docs |
+| Redpanda Console (mensagens) | http://localhost:8091 |
+| Redpanda (clientes Kafka) | localhost:29092 |
+| PostgreSQL | localhost:15432 (banco `portal_b2b`) |
 
-As instruções para rodar os nossos serviços entram aqui quando o primeiro estiver implementado. Antes disso, veja a [Análise do kit](docs/04-analise-do-kit.md): os boilerplates não consomem Kafka e não gravam no banco.
+Token para chamar a API: `docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil admin`.
+
+Testes unitários, sem Docker:
+
+```bash
+python -m venv .venv
+.venv/Scripts/python -m pip install -e "comum[testes]"    # Linux/Mac: .venv/bin/python
+.venv/Scripts/python -m pytest
+```
+
+O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](docs/explicacoes/).
 
 ## Estrutura do repositório
 
@@ -93,16 +108,24 @@ As instruções para rodar os nossos serviços entram aqui quando o primeiro est
 .
 ├── README.md
 ├── CLAUDE.md                     # orientações para o Claude Code
-├── docs/
-│   ├── 01-contexto-e-escopo.md
-│   ├── 02-arquitetura-proposta.md
-│   ├── 03-eventos-e-integracoes.md
-│   ├── 04-analise-do-kit.md
-│   ├── 05-plano-de-trabalho.md
-│   ├── 06-pauta-de-decisoes.md
-│   └── contratos/
-│       └── proposta-grupo-pedidos.md
-└── services/
-    ├── logistica-service/        # ainda sem código
-    └── transportadoras-service/  # ainda sem código
+├── docker-compose.yml            # ambiente de desenvolvimento
+├── comum/                        # código compartilhado pelos dois serviços
+│   ├── comum/                    # eventos, outbox, consumidor, relógio, JWT, erros, logs
+│   │   ├── contratos/            # JSON Schemas dos eventos
+│   │   └── ferramentas/          # pedido falso (D23) e gerador de token
+│   └── tests/
+├── services/
+│   ├── logistica-service/
+│   │   ├── logistica/            # código do serviço
+│   │   ├── migracoes/            # tabelas do schema logistica
+│   │   └── tests/
+│   └── transportadoras-service/
+│       ├── transportadoras/
+│       ├── migracoes/
+│       └── tests/
+├── infra/                        # inicialização do Postgres e dos tópicos
+└── docs/
+    ├── 01-contexto-e-escopo.md ... 06-pauta-de-decisoes.md
+    ├── contratos/                # propostas de contrato com outros grupos
+    └── explicacoes/              # explicação de cada parte implementada
 ```

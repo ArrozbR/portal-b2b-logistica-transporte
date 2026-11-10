@@ -13,7 +13,7 @@ Grupo 5 (Logística e Transporte) do **Portal B2B Distribuído**, trabalho da di
 
 Além do que o kit define (cotação e seleção de frete), o professor pediu **rastreio visual da entrega** e **comparação entre transportadoras**.
 
-**Situação:** decisões tomadas, ainda sem código. As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
+**Situação:** etapa 1 escrita (base dos serviços e fluxo automático do frete). As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
 
 O código é gerado por IA, com conhecimento do professor. Cada parte entregue precisa vir com um arquivo em `docs/explicacoes/` (D24): o que a parte faz, em linguagem simples; por que foi feita assim; e as perguntas que o professor pode fazer, com as respostas. O grupo não tem experiência com as ferramentas, então explique sem jargão.
 
@@ -37,7 +37,7 @@ Regras de negócio que fogem do kit: o comprador escolhe o frete em até 12 h (a
 | `docs/05-plano-de-trabalho.md` | Etapas 0 a 5, testes e roteiro da demonstração |
 | `docs/06-pauta-de-decisoes.md` | Decisões D1 a D24 e perguntas ao professor |
 | `docs/contratos/` | Propostas de contrato com outros grupos e, quando aprovados, JSON Schemas |
-| `docs/explicacoes/` | Explicação de cada parte implementada, para o grupo estudar (ainda vazio) |
+| `docs/explicacoes/` | Explicação de cada parte implementada, para o grupo estudar (uma por etapa) |
 
 Convenções:
 
@@ -81,21 +81,29 @@ Repositórios dos outros grupos usados como referência (só leitura):
 
 ## Stack (D16)
 
-Python 3.12, FastAPI, `aiokafka`, `psycopg2`, `pytest` com `httpx`, k6 para carga. Telas em HTML, JavaScript e Leaflet sobre OpenStreetMap, seguindo o mockup do UX (D11).
+Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com `psycopg_pool`), `jsonschema`, `prometheus-client`, `pytest`; k6 para carga. Telas em HTML, JavaScript e Leaflet sobre OpenStreetMap, seguindo o mockup do UX (D11).
 
-Os boilerplates do kit não consomem Kafka, guardam dados em memória e têm os problemas listados em `docs/04-analise-do-kit.md`. Ao copiar código do kit, aplique as correções e registre o que foi mudado.
+## Organização do código
 
-## Ambiente local
+- `comum/comum/`: pacote compartilhado (instalado nas duas imagens). Use o que já existe antes de escrever de novo:
+  - `outbox.gravar_evento(conn, ...)` para publicar qualquer evento, sempre dentro da transação da alteração;
+  - `consumidor.ConsumidorIdempotente` para consumir; tratadores recebem `(conn, envelope)` e levantam `EventoInvalido` para mandar direto à DLT;
+  - `erros.Problema(status, codigo, titulo, detalhe)` para erros de negócio (vira RFC 7807);
+  - `auth.exigir_perfis(...)`, `web.paginacao`, `web.resposta_paginada`;
+  - `relogio.Relogio.agora(conn)` para qualquer hora de negócio (nunca `datetime.now()` em regra de negócio);
+  - `eventos.validar_payload(nome, payload)` com os JSON Schemas de `comum/comum/contratos/`.
+- `services/<servico>/<pacote>/`: `servico.py` (regras, recebe `conn`), `api.py` (rotas), `main.py` (montagem e rotinas). Regras puras ficam em módulos sem banco nem Kafka (`regras.py`, `cotacao.py`) e têm teste unitário.
+- `services/<servico>/migracoes/NNN_*.sql`: DDL executado como `portal_ddl`; terminar com os GRANTs para o `svc_*`. Migrações só rodam com o volume do Postgres vazio (`docker compose down -v`).
+- Os boilerplates do kit não consomem Kafka, guardam dados em memória e têm os problemas listados em `docs/04-analise-do-kit.md`. Não copie código deles sem aplicar as correções.
 
-O ambiente vem do kit (precisa de Docker):
+## Comandos
 
 ```bash
-git clone https://github.com/Printf-PedroCardoso/portal-b2b-kit-infra
-cd portal-b2b-kit-infra
-make env
-make infra-up
+docker compose up -d --build          # ambiente completo (Postgres 15432, Redpanda 29092, Console 8091, serviços 8108/8118/8109/8119)
+docker compose down -v                # derruba e apaga os dados (necessário após mudar migrações)
+docker compose exec logistica-1 python -m comum.ferramentas.publicar_pedido_falso [--repetir 5]
+docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil admin
+.venv/Scripts/python -m pytest        # testes unitários (criar a .venv com: pip install -e "comum[testes]")
 ```
 
-Gateway em `http://localhost:8080`, Kafka UI em `http://localhost:8090`, PgAdmin em `http://localhost:5050`, Redpanda em `localhost:19092`, PostgreSQL em `localhost:5432`. As credenciais do `.env.example` do kit são só de desenvolvimento; não copie senhas para este repositório.
-
-Comandos para rodar e testar os nossos serviços entram aqui quando existir código.
+As senhas do `docker-compose.yml` são padrões de desenvolvimento, sobrescritas pelo `.env`. As credenciais do `.env.example` do kit são só de desenvolvimento; não copie senhas do kit para este repositório.
