@@ -10,12 +10,12 @@
 import uuid
 from datetime import timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Response
 from fastapi.responses import JSONResponse
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from comum.auth import Usuario, exigir_perfis, usuario_atual
 from comum.db import BancoDeDados, buscar_todos, buscar_um
@@ -79,7 +79,10 @@ TipoDocumento = Literal["cte", "romaneio", "nota-fiscal", "comprovante-coleta"]
 
 
 class NovaOcorrencia(BaseModel):
-    descricao: str = Field(..., min_length=5, max_length=500, description="O que aconteceu")
+    # Os espaços das pontas saem ANTES de contar o tamanho: "     " (5 espaços) passava no
+    # mínimo de 5 caracteres e era gravado como texto vazio.
+    descricao: Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=500)] = Field(
+        ..., description="O que aconteceu (5 a 500 caracteres, sem contar espaços nas pontas)")
 
 
 class AjusteDoRelogio(BaseModel):
@@ -117,6 +120,7 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                summary="Lista as solicitações de frete visíveis para o usuário")
     async def listar_solicitacoes(
         status: StatusSolicitacao | None = Query(None, description="Filtra por status"),
+        pedido_id: str | None = Query(None, min_length=1, max_length=64, description="Filtra pelo pedido"),
         pagina: Pagina = Depends(paginacao),
         usuario: Usuario = Depends(leitores),
     ):
@@ -124,6 +128,9 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
         if status:
             condicao += " AND status = %s"
             parametros.append(status)
+        if pedido_id:
+            condicao += " AND pedido_id = %s"
+            parametros.append(pedido_id)
         async with db.transacao() as conn:
             total = (await buscar_um(
                 conn, f"SELECT count(*) AS total FROM logistica.solicitacao_frete WHERE {condicao}", parametros
@@ -374,13 +381,13 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id, autor_papel, descricao, ocorrida_em
             """, (str(uuid.uuid4()), entrega_id, entrega["pedido_id"], usuario.id, usuario.perfil,
-                  corpo.descricao.strip(), hora))
+                  corpo.descricao, hora))
             await conn.execute("UPDATE logistica.entrega SET com_ocorrencia = TRUE, atualizado_em = now() "
                                "WHERE id = %s", (entrega_id,))
             outro = (entrega["fornecedor_id"], "fornecedor") if usuario.perfil == "comprador" \
                 else (entrega["comprador_id"], "comprador")
             await notificar(conn, empresa_id=outro[0], papel=outro[1], tipo="OCORRENCIA",
-                            texto=texto_ocorrencia(entrega["pedido_id"], usuario.perfil, corpo.descricao.strip()),
+                            texto=texto_ocorrencia(entrega["pedido_id"], usuario.perfil, corpo.descricao),
                             pedido_id=entrega["pedido_id"], solicitacao_id=entrega["solicitacao_id"], agora=hora)
         return linha_para_json(linha)
 

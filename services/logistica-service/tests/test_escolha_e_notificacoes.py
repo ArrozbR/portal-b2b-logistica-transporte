@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from logistica.api import AjusteDoRelogio, PedidoDeEscolha
+from logistica.api import AjusteDoRelogio, NovaOcorrencia, PedidoDeEscolha
 from logistica.notificacoes import (texto_cotacoes_disponiveis, texto_frete_escolhido, texto_frete_indisponivel,
                                     texto_sem_cotacao)
 
@@ -39,6 +39,19 @@ def test_fator_do_relogio_tem_no_maximo_duas_casas(corpo, aceito):
     else:
         with pytest.raises(ValidationError):
             AjusteDoRelogio.model_validate_json(corpo)
+
+
+@pytest.mark.parametrize("descricao, aceita", [
+    ("Carga molhada", True), ("  Carga molhada  ", True), ("abcde", True), ("x" * 500, True),
+    ("     ", False), ("  abc  ", False), ("abcd", False), ("x" * 501, False),
+])
+def test_descricao_da_ocorrencia_conta_sem_os_espacos_das_pontas(descricao, aceita):
+    # "     " passava no mínimo de 5 caracteres e era gravada como texto vazio.
+    if aceita:
+        assert NovaOcorrencia(descricao=descricao).descricao == descricao.strip()
+    else:
+        with pytest.raises(ValidationError):
+            NovaOcorrencia(descricao=descricao)
 
 
 def test_textos_das_notificacoes():
