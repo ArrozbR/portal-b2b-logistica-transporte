@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "frete_selecionado",
+  "title": "frete_selecionado (publicado pela logística)",
+  "type": "object",
+  "required": [
+    "pedidoId", "solicitacaoFreteId", "entregaId", "tentativa", "cotacaoId",
+    "transportadoraId", "preco", "prazoDias", "criterio", "status"
+  ],
+  "properties": {
+    "pedidoId": { "type": "string" },
+    "solicitacaoFreteId": { "type": "string" },
+    "entregaId": { "type": "string" },
+    "tentativa": { "type": "integer", "minimum": 1 },
+    "cotacaoId": { "type": "string" },
+    "transportadoraId": { "type": "string" },
+    "preco": { "type": "number" },
+    "prazoDias": { "type": "integer" },
+    "dataEntregaPrevista": { "type": ["string", "null"], "format": "date" },
+    "criterio": { "enum": ["ESCOLHA_COMPRADOR", "AUTOMATICO_MENOR_PRECO"] },
+    "status": { "const": "FRETE_SELECIONADO" }
+  }
+}

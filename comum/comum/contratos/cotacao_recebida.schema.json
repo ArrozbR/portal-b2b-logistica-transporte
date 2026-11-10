@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cotacao_recebida",
+  "title": "cotacao_recebida (publicado pelas transportadoras)",
+  "type": "object",
+  "required": ["cotacaoId", "solicitacaoFreteId", "transportadoraId", "preco", "prazoDias"],
+  "properties": {
+    "cotacaoId": { "type": "string", "minLength": 1 },
+    "solicitacaoFreteId": { "type": "string", "minLength": 1 },
+    "transportadoraId": { "type": "string", "minLength": 1 },
+    "transportadoraNome": { "type": "string" },
+    "preco": { "type": "number", "exclusiveMinimum": 0 },
+    "prazoDias": { "type": "integer", "minimum": 1 },
+    "dataEntregaPrevista": { "type": "string", "format": "date" },
+    "validaAte": { "type": "string", "format": "date-time" },
+    "origemCotacao": { "enum": ["SIMULADA", "DIGITADA"] },
+    "observacoes": { "type": ["string", "null"], "maxLength": 500 }
+  }
+}

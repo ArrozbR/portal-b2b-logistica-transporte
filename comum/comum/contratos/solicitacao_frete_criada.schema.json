@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "solicitacao_frete_criada",
+  "title": "solicitacao_frete_criada (publicado pela logística)",
+  "type": "object",
+  "required": [
+    "solicitacaoFreteId", "pedidoId", "tipoCarga", "pesoKg", "origem", "destino",
+    "distanciaKm", "dataColetaPrevista", "prazoDecisaoEm", "status"
+  ],
+  "properties": {
+    "solicitacaoFreteId": { "type": "string", "minLength": 1 },
+    "pedidoId": { "type": "string", "minLength": 1 },
+    "produtoId": { "type": "string" },
+    "produtoNome": { "type": "string" },
+    "compradorId": { "type": "string" },
+    "fornecedorId": { "type": "string" },
+    "tipoCarga": { "enum": ["GRANEL", "REFRIGERADO", "CARGA_SECA", "PERIGOSO"] },
+    "pesoKg": { "type": "number", "exclusiveMinimum": 0 },
+    "origem": { "$ref": "#/$defs/localComCoordenadas" },
+    "destino": { "$ref": "#/$defs/localComCoordenadas" },
+    "distanciaKm": { "type": "number", "minimum": 0 },
+    "dataColetaPrevista": { "type": "string", "format": "date" },
+    "prazoDecisaoEm": { "type": "string", "format": "date-time" },
+    "status": { "const": "ABERTA" }
+  },
+  "$defs": {
+    "localComCoordenadas": {
+      "type": "object",
+      "required": ["cidade", "uf", "lat", "lon"],
+      "properties": {
+        "cidade": { "type": "string" },
+        "uf": { "type": "string", "pattern": "^[A-Z]{2}$" },
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    }
+  }
+}

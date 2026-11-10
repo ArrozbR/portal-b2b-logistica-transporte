@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: comum
+Version: 0.1.0
+Summary: Código compartilhado pelos serviços de Logística e Transportadoras
+Requires-Python: >=3.12
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn[standard]>=0.32
+Requires-Dist: pydantic>=2.9
+Requires-Dist: aiokafka>=0.11
+Requires-Dist: psycopg[binary,pool]>=3.2
+Requires-Dist: PyJWT>=2.9
+Requires-Dist: jsonschema>=4.23
+Requires-Dist: prometheus-client>=0.21
+Provides-Extra: testes
+Requires-Dist: pytest>=8.3; extra == "testes"
+Requires-Dist: pytest-asyncio>=0.24; extra == "testes"
+Requires-Dist: httpx>=0.27; extra == "testes"

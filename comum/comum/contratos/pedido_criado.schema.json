@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pedido_criado",
+  "title": "pedido_criado (proposta enviada ao grupo de Pedidos)",
+  "description": "Campos que a logística precisa. Ver docs/contratos/proposta-grupo-pedidos.md. Campos extras são aceitos.",
+  "type": "object",
+  "required": [
+    "pedidoId", "compradorId", "fornecedorId", "produtoId", "produtoNome",
+    "quantidade", "unidade", "pesoKg", "tipoTransporte", "valorTotal", "origem", "destino"
+  ],
+  "properties": {
+    "pedidoId": { "type": "string", "minLength": 1 },
+    "negociacaoId": { "type": "string" },
+    "compradorId": { "type": "string", "minLength": 1 },
+    "fornecedorId": { "type": "string", "minLength": 1 },
+    "produtoId": { "type": "string", "minLength": 1 },
+    "produtoNome": { "type": "string", "minLength": 1 },
+    "quantidade": { "type": "number", "exclusiveMinimum": 0 },
+    "unidade": { "enum": ["KG", "TON", "UN", "CX", "L"] },
+    "pesoKg": { "type": "number", "exclusiveMinimum": 0 },
+    "tipoTransporte": { "enum": ["GRANEL", "REFRIGERADO", "CARGA_SECA", "PERIGOSO"] },
+    "valorTotal": { "type": "number", "minimum": 0 },
+    "origem": { "$ref": "#/$defs/local" },
+    "destino": { "$ref": "#/$defs/local" },
+    "dataEntregaDesejada": { "type": "string", "format": "date" },
+    "status": { "type": "string" }
+  },
+  "$defs": {
+    "local": {
+      "type": "object",
+      "required": ["cidade", "uf"],
+      "properties": {
+        "cidade": { "type": "string", "minLength": 1 },
+        "uf": { "type": "string", "pattern": "^[A-Z]{2}$" }
+      }
+    }
+  }
+}
