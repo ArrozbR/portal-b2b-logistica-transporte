@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rastreio_atualizado",
+  "title": "rastreio_atualizado (novo; publicado pelas transportadoras)",
+  "type": "object",
+  "required": ["pedidoId", "entregaId", "transportadoraId", "sequencia", "tipo", "descricao", "ocorridoEm"],
+  "properties": {
+    "pedidoId": { "type": "string" },
+    "entregaId": { "type": "string" },
+    "transportadoraId": { "type": "string" },
+    "sequencia": { "type": "integer", "minimum": 1 },
+    "tipo": {
+      "enum": ["VIAGEM_ALOCADA", "VIAGEM_RECUSADA", "COLETA_REALIZADA", "POSICAO", "PARADA",
+               "PREVISAO_ATUALIZADA", "OCORRENCIA", "ENTREGA_REALIZADA"]
+    },
+    "descricao": { "type": "string" },
+    "posicao": { "$ref": "#/$defs/ponto" },
+    "progresso": { "type": "number", "minimum": 0, "maximum": 1 },
+    "previsaoChegada": { "type": "string", "format": "date-time" },
+    "ocorridoEm": { "type": "string", "format": "date-time" },
+    "motorista": {
+      "type": "object",
+      "required": ["nome"],
+      "properties": {
+        "nome": { "type": "string" },
+        "telefone": { "type": ["string", "null"] },
+        "cnhMascarada": { "type": ["string", "null"] }
+      }
+    },
+    "veiculo": {
+      "type": "object",
+      "required": ["placa", "tipo"],
+      "properties": { "placa": { "type": "string" }, "tipo": { "type": "string" } }
+    },
+    "transportadora": {
+      "type": "object",
+      "properties": { "nome": { "type": "string" }, "telefone": { "type": ["string", "null"] } }
+    },
+    "coletaPrevista": { "type": "string", "format": "date-time" },
+    "rota": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 } },
+    "motivo": { "enum": ["SEM_MOTORISTA", "SEM_VEICULO"] },
+    "local": { "type": "string" },
+    "duracaoPrevistaMin": { "type": "integer" },
+    "previsaoAnterior": { "type": "string", "format": "date-time" },
+    "noPrazo": { "type": "boolean" },
+    "atrasoHoras": { "type": "number", "minimum": 0 }
+  },
+  "allOf": [
+    { "if": { "properties": { "tipo": { "const": "VIAGEM_ALOCADA" } } },
+      "then": { "required": ["motorista", "veiculo", "rota", "coletaPrevista", "previsaoChegada"] } },
+    { "if": { "properties": { "tipo": { "const": "VIAGEM_RECUSADA" } } }, "then": { "required": ["motivo"] } },
+    { "if": { "properties": { "tipo": { "const": "ENTREGA_REALIZADA" } } },
+      "then": { "required": ["noPrazo", "atrasoHoras", "posicao"] } },
+    { "if": { "properties": { "tipo": { "enum": ["POSICAO", "PARADA", "PREVISAO_ATUALIZADA"] } } },
+      "then": { "required": ["posicao", "progresso", "previsaoChegada"] } }
+  ],
+  "$defs": {
+    "ponto": {
+      "type": "object",
+      "required": ["lat", "lon"],
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    }
+  }
+}

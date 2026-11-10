@@ -99,6 +99,48 @@ def distancia_estrada_km(origem: Cidade, destino: Cidade) -> float:
     return round(reta * FATOR_SINUOSIDADE, 1)
 
 
+Ponto = tuple[float, float]  # (latitude, longitude)
+
+
+def interpolar_rota(origem: Cidade, destino: Cidade, pontos: int = 60) -> list[Ponto]:
+    """Rota simulada: `pontos` pontos em linha reta entre as duas cidades (D9).
+
+    A rota por estrada (OSRM) é um extra para depois; a linha reta é honesta
+    sobre ser uma simulação.
+    """
+    passos = max(pontos - 1, 1)
+    return [
+        (round(origem.lat + (destino.lat - origem.lat) * i / passos, 6),
+         round(origem.lon + (destino.lon - origem.lon) * i / passos, 6))
+        for i in range(passos + 1)
+    ]
+
+
+def posicao_na_rota(rota: list[Ponto], progresso: float) -> Ponto:
+    """Ponto da rota depois de percorrer `progresso` (0 a 1) da distância total."""
+    if not rota:
+        raise ValueError("Rota vazia")
+    progresso = min(max(progresso, 0.0), 1.0)
+    trechos = [distancia_linha_reta_km(*rota[i], *rota[i + 1]) for i in range(len(rota) - 1)]
+    total = sum(trechos)
+    if total == 0 or progresso == 0:
+        return rota[0]
+    alvo = total * progresso
+    percorrido = 0.0
+    for i, trecho in enumerate(trechos):
+        if percorrido + trecho >= alvo:
+            fracao = (alvo - percorrido) / trecho if trecho else 0
+            (lat1, lon1), (lat2, lon2) = rota[i], rota[i + 1]
+            return (round(lat1 + (lat2 - lat1) * fracao, 6), round(lon1 + (lon2 - lon1) * fracao, 6))
+        percorrido += trecho
+    return rota[-1]
+
+
+def cidade_mais_proxima(lat: float, lon: float) -> tuple[Cidade, float]:
+    """A cidade da lista mais perto do ponto, e a distância até ela em km."""
+    return min(((c, distancia_linha_reta_km(lat, lon, c.lat, c.lon)) for c in _CIDADES), key=lambda par: par[1])
+
+
 def somar_dias_uteis(inicio: date, dias: int) -> date:
     """Soma dias úteis (segunda a sexta). Feriados não são considerados."""
     atual = inicio

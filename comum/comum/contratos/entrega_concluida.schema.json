@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "entrega_concluida",
+  "title": "entrega_concluida (novo; publicado pela logística)",
+  "type": "object",
+  "required": ["pedidoId", "entregaId", "transportadoraId", "entregueEm", "noPrazo", "atrasoHoras"],
+  "properties": {
+    "pedidoId": { "type": "string" },
+    "entregaId": { "type": "string" },
+    "transportadoraId": { "type": "string" },
+    "entregueEm": { "type": "string", "format": "date-time" },
+    "prazoPrometido": { "type": ["string", "null"], "format": "date" },
+    "noPrazo": { "type": "boolean" },
+    "atrasoHoras": { "type": "number", "minimum": 0 }
+  }
+}
