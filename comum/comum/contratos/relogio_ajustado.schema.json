@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "relogio_ajustado",
+  "title": "relogio_ajustado (interno ao grupo; publicado pela logística)",
+  "type": "object",
+  "required": ["versao", "baseReal", "baseVirtual", "fator"],
+  "properties": {
+    "versao": { "type": "integer", "minimum": 1 },
+    "baseReal": { "type": "string", "format": "date-time" },
+    "baseVirtual": { "type": "string", "format": "date-time" },
+    "fator": { "type": "number", "exclusiveMinimum": 0 },
+    "ajustadoPor": { "type": ["string", "null"] }
+  }
+}

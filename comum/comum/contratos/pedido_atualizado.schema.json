@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pedido_atualizado",
+  "title": "pedido_atualizado (publicado pelo grupo de Pedidos)",
+  "description": "O boilerplate do kit usa novoStatus; aceitamos também status. Só o pedidoId e o novo status são usados.",
+  "type": "object",
+  "required": ["pedidoId"],
+  "anyOf": [
+    { "required": ["novoStatus"] },
+    { "required": ["status"] }
+  ],
+  "properties": {
+    "pedidoId": { "type": "string", "minLength": 1 },
+    "statusAnterior": { "type": ["string", "null"] },
+    "novoStatus": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "minLength": 1 }
+  }
+}

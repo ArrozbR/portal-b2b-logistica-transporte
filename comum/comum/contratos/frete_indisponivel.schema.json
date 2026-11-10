@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "frete_indisponivel",
+  "title": "frete_indisponivel (publicado pela logística)",
+  "type": "object",
+  "required": ["pedidoId", "solicitacaoFreteId", "motivo", "ocorridoEm"],
+  "properties": {
+    "pedidoId": { "type": "string" },
+    "solicitacaoFreteId": { "type": "string" },
+    "motivo": { "enum": ["SEM_COTACAO", "SEM_TRANSPORTADORA_DISPONIVEL"] },
+    "detalhe": { "type": "string" },
+    "ocorridoEm": { "type": "string", "format": "date-time" }
+  }
+}
