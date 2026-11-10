@@ -15,6 +15,9 @@ Três garantias:
 3. DLT (dead letter topic). Se continuar falhando, ou se a mensagem for
    inválida (EventoInvalido), ela vai para `<servico>.dlt` com o motivo, e o
    consumidor segue para a próxima. Uma mensagem ruim nunca trava a fila.
+   O payload da DLT usa os campos da biblioteca comum do kit
+   (`services/common/consumer.py`): originalEvent, error, stackTrace e
+   failedAtAttempt, mais originalTopic (o tópico de onde a mensagem veio).
 
 O offset só é confirmado (commit) depois de a mensagem ser processada ou ir
 para a DLT. Se o serviço cair no meio, a mensagem é entregue de novo e a
@@ -24,6 +27,7 @@ idempotência evita o efeito duplicado.
 import asyncio
 import json
 import logging
+import traceback
 from typing import Awaitable, Callable
 
 from aiokafka import AIOKafkaConsumer
@@ -78,7 +82,7 @@ class ConsumidorIdempotente:
         try:
             envelope = validar_envelope(json.loads(valor))
         except (ValueError, EventoInvalido) as exc:
-            await self._enviar_dlt(topico, None, valor, str(exc), tentativas=0)
+            await self._enviar_dlt(topico, None, valor, str(exc), tentativa=1, pilha=traceback.format_exc())
             return "dlt"
 
         token = correlation_id.set(envelope.get("correlationId"))
@@ -111,13 +115,15 @@ class ConsumidorIdempotente:
             except EventoInvalido as exc:
                 log.warning("Evento inválido, enviado para a DLT",
                             extra={"dados": {"eventId": envelope["eventId"], "topico": topico, "erro": str(exc)}})
-                await self._enviar_dlt(topico, envelope, None, str(exc), tentativas=tentativa)
+                await self._enviar_dlt(topico, envelope, None, str(exc), tentativa=tentativa,
+                                       pilha=traceback.format_exc())
                 return "dlt"
             except Exception as exc:
                 if not esperas:
                     log.exception("Falha permanente, evento enviado para a DLT",
                                   extra={"dados": {"eventId": envelope["eventId"], "topico": topico}})
-                    await self._enviar_dlt(topico, envelope, None, repr(exc), tentativas=tentativa)
+                    await self._enviar_dlt(topico, envelope, None, repr(exc), tentativa=tentativa,
+                                           pilha=traceback.format_exc())
                     return "dlt"
                 espera = esperas.pop(0)
                 log.warning("Falha ao processar evento, nova tentativa",
@@ -126,13 +132,8 @@ class ConsumidorIdempotente:
                 await asyncio.sleep(espera)
 
     async def _enviar_dlt(self, topico: str, envelope: dict | None, valor_bruto: bytes | None,
-                          erro: str, tentativas: int) -> None:
-        payload = {
-            "topicoOriginal": topico,
-            "erro": erro,
-            "tentativas": tentativas,
-            "eventoOriginal": envelope if envelope is not None else (valor_bruto or b"").decode("utf-8", "replace"),
-        }
+                          erro: str, tentativa: int, pilha: str) -> None:
+        payload = montar_payload_dlt(topico, envelope, valor_bruto, erro, tentativa, pilha)
         chave = (envelope or {}).get("aggregateId") or "desconhecido"
         id_correlacao = (envelope or {}).get("correlationId")
         while True:  # a DLT também passa pela outbox; insiste até o banco aceitar
@@ -151,3 +152,18 @@ class ConsumidorIdempotente:
             except Exception:
                 log.exception("Não foi possível gravar na DLT, tentando de novo")
                 await asyncio.sleep(2)
+
+
+def montar_payload_dlt(topico: str, envelope: dict | None, valor_bruto: bytes | None,
+                       erro: str, tentativa: int, pilha: str) -> dict:
+    """Payload da DLT no formato do kit, mais o tópico de origem.
+
+    Se a mensagem nem era JSON, `originalEvent` leva o texto recebido.
+    """
+    return {
+        "originalEvent": envelope if envelope is not None else (valor_bruto or b"").decode("utf-8", "replace"),
+        "error": erro,
+        "stackTrace": pilha,
+        "failedAtAttempt": tentativa,
+        "originalTopic": topico,
+    }
