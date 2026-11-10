@@ -67,4 +67,13 @@ Na etapa 1, o código foi escrito do zero no pacote `comum/` e nos dois serviço
 | L9 | JWT obrigatório e perfis por rota | `comum/comum/auth.py`, `*/api.py` |
 | L10 | Listagens paginadas, `size > 100` → 422 | `comum/comum/web.py` |
 
-Ficam para as próximas etapas: L2 e L15 (escolha pelo comprador, etapa 2), L12 (depende do grupo de Pedidos), L13 e L14 (telas, etapas 3 e 4).
+Na etapa 2:
+
+| Item | Como ficou | Onde |
+|---|---|---|
+| L2 | Corpo da escolha validado (`cotacaoId` ou `modo`); corpo errado → 422, nunca 500 | `logistica/api.py` |
+| L3 | Mínimo de 1 cotação; sem cotação, `SEM_COTACAO` e depois `frete_indisponivel` (D4) | `logistica/servico.py` |
+| L14 | Cotações aceitas até a escolha do comprador (12 h), não só nos 10 s | `logistica/servico.py` |
+| L15 | Quem escolheu fica em `escolhida_por` | `migracoes/002_*.sql`, `logistica/servico.py` |
+
+Ficam para as próximas etapas: L12 (depende do grupo de Pedidos) e L13 (telas, etapas 3 e 4).

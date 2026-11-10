@@ -13,7 +13,7 @@ Grupo 5 (Logística e Transporte) do **Portal B2B Distribuído**, trabalho da di
 
 Além do que o kit define (cotação e seleção de frete), o professor pediu **rastreio visual da entrega** e **comparação entre transportadoras**.
 
-**Situação:** etapa 1 escrita (base dos serviços e fluxo automático do frete). As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
+**Situação:** etapas 1 e 2 concluídas (fluxo do frete, escolha pelo comprador, relógio, notificações, cancelamento). Próxima: etapa 3. As decisões estão em `docs/06-pauta-de-decisoes.md` (D1 a D24, perguntas P1 a P5). Confira a coluna "Situação" antes de implementar: as marcadas "depende de" ainda podem mudar por causa de outro grupo ou do professor. A ordem de trabalho está em `docs/05-plano-de-trabalho.md` (etapas 0 a 5).
 
 O código é gerado por IA, com conhecimento do professor. Cada parte entregue precisa vir com um arquivo em `docs/explicacoes/` (D24): o que a parte faz, em linguagem simples; por que foi feita assim; e as perguntas que o professor pode fazer, com as respostas. O grupo não tem experiência com as ferramentas, então explique sem jargão.
 
@@ -90,7 +90,9 @@ Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com
   - `consumidor.ConsumidorIdempotente` para consumir; tratadores recebem `(conn, envelope)` e levantam `EventoInvalido` para mandar direto à DLT;
   - `erros.Problema(status, codigo, titulo, detalhe)` para erros de negócio (vira RFC 7807);
   - `auth.exigir_perfis(...)`, `web.paginacao`, `web.resposta_paginada`;
-  - `relogio.Relogio.agora(conn)` para qualquer hora de negócio (nunca `datetime.now()` em regra de negócio);
+  - `relogio.Relogio.agora(conn)` para qualquer hora de negócio (nunca `datetime.now()` em regra de negócio). Exceção: tempos técnicos de espera da rede, como a rodada de 10 s, usam hora real. Não coloque cache no relógio: com fator alto, as cópias divergem;
+  - `logs.correlacao(id)` em rotinas de segundo plano, para os logs levarem o `correlationId`;
+  - notificações com `logistica/notificacoes.notificar(conn, ...)`, na mesma transação da mudança;
   - `eventos.validar_payload(nome, payload)` com os JSON Schemas de `comum/comum/contratos/`.
 - `services/<servico>/<pacote>/`: `servico.py` (regras, recebe `conn`), `api.py` (rotas), `main.py` (montagem e rotinas). Regras puras ficam em módulos sem banco nem Kafka (`regras.py`, `cotacao.py`) e têm teste unitário.
 - `services/<servico>/migracoes/NNN_*.sql`: DDL executado como `portal_ddl`; terminar com os GRANTs para o `svc_*`. Migrações só rodam com o volume do Postgres vazio (`docker compose down -v`).
@@ -103,6 +105,8 @@ docker compose up -d --build          # ambiente completo (Postgres 15432, Redpa
 docker compose down -v                # derruba e apaga os dados (necessário após mudar migrações)
 docker compose exec logistica-1 python -m comum.ferramentas.publicar_pedido_falso [--repetir 5]
 docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil admin
+docker compose exec logistica-1 python -m comum.ferramentas.cancelar_pedido_falso --pedido-id <id>
+docker compose logs -f pedidos-falso  # papel do grupo de Pedidos (D23)
 .venv/Scripts/python -m pytest        # testes unitários (criar a .venv com: pip install -e "comum[testes]")
 ```
 

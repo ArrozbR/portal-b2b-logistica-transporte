@@ -2,7 +2,7 @@
 
 Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuído, trabalho da disciplina de Sistemas Distribuídos (2026). O grupo cuida do que acontece depois que o pedido é criado: cotar o frete com as transportadoras, comparar as propostas, escolher a vencedora e acompanhar a entrega num mapa até a chegada.
 
-> **Situação:** etapa 1 concluída e validada no Docker: um pedido entra e o frete é escolhido sozinho, com idempotência, DLT e duas cópias de cada serviço. Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
+> **Situação:** etapas 1 e 2 concluídas e validadas no Docker: o pedido entra, as transportadoras cotam, o comprador escolhe (ou o sistema escolhe pelo menor preço), com relógio acelerável, notificações e cancelamento. Próxima: etapa 3 (motoristas, viagem simulada e mapa). Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
 
 ## Integrantes
 
@@ -91,6 +91,10 @@ docker compose down -v             # derruba e apaga os dados
 | PostgreSQL | localhost:15432 (banco `portal_b2b`) |
 
 Token para chamar a API: `docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil admin`.
+
+O contêiner `pedidos-falso` faz o papel do grupo de Pedidos (`docker compose logs -f pedidos-falso`). Para cancelar um pedido de teste: `docker compose exec logistica-1 python -m comum.ferramentas.cancelar_pedido_falso --pedido-id <id>`.
+
+Quando uma migração nova é adicionada, o banco de desenvolvimento precisa ser recriado: `docker compose down -v && docker compose up -d --build`.
 
 Testes unitários, sem Docker:
 

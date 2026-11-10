@@ -268,10 +268,12 @@ Como funciona:
 
 1. O administrador altera o fator (ou avança o relógio) pela tela, em `POST /api/v1/logistica/admin/relogio`.
 2. A logística calcula a nova base **sem salto** (`base_virtual` = hora do módulo naquele instante), grava na sua tabela `relogio` e publica `relogio_ajustado`.
-3. O `transportadoras-service` consome e grava na sua própria tabela `relogio`. Esse consumidor usa um grupo de consumidores **por cópia**, para que `app1` e `app2` recebam o ajuste.
-4. Cada cópia lê o relógio do seu banco, com cache de poucos segundos. Um ajuste com `versao` menor ou igual à atual é ignorado.
+3. O `transportadoras-service` consome e grava na sua própria tabela `relogio`. As duas cópias dele leem a mesma tabela, então basta o grupo de consumidores normal do serviço: uma cópia grava e as duas passam a ver. Um ajuste com `versao` menor ou igual à gravada é ignorado.
+4. Cada cópia lê o relógio do banco **a cada consulta, sem cache**. Na etapa 2, um cache de 2 s deixou as duas cópias até 2 horas de módulo uma da outra com o fator 3600; sem cache, as duas veem sempre a mesma hora.
 
-Valor sugerido para a apresentação: fator 360, para a viagem de 3 dias durar cerca de 12 minutos e o caminhão andar 24 vezes.
+**Exceção:** a rodada automática de 10 s conta na **hora real**. Ela é um tempo técnico, de espera das respostas automáticas das transportadoras. Se usasse o relógio acelerado, acabaria antes de as cotações conseguirem chegar (elas levam ~150 ms reais, que viram quase 1 minuto de módulo a 360x).
+
+Valores sugeridos para a apresentação: fator 3600 para mostrar a escolha automática (as 12 h de prazo passam em 12 s) e fator 360 para a viagem (3 dias em cerca de 12 minutos, com o caminhão andando 24 vezes).
 
 O relógio vale só para o módulo de logística. Os outros grupos continuam na hora real, e essa diferença é explicada na apresentação.
 

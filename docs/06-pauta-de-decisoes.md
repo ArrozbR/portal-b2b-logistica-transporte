@@ -70,7 +70,7 @@ Uma cotação digitada é aceita enquanto o frete não foi escolhido. Depois da 
 
 | Prazo | Valor | O que acontece quando vence |
 |---|---|---|
-| Rodada automática | 10 s (o tempo do kit) | Se nenhuma cotação chegou, a solicitação vai para `SEM_COTACAO` e comprador e fornecedor são avisados |
+| Rodada automática | 10 s (o tempo do kit), em hora real (D18) | Se nenhuma cotação chegou, a solicitação vai para `SEM_COTACAO` e comprador e fornecedor são avisados |
 | Prazo de decisão | 12 h a partir da abertura | Com pelo menos 1 cotação: escolha automática pela regra do kit. Sem nenhuma: o frete é dado como indisponível e o pedido é cancelado (D12) |
 
 - Mínimo de cotações para escolher: **1**. Carga refrigerada ou perigosa pode ter uma transportadora só.
@@ -167,6 +167,8 @@ O código compartilhado fica no pacote `comum/`, instalado nas imagens dos dois 
 
 A diferença em relação aos outros grupos foi aceita: o relógio acelerado vale só para o módulo de logística, e isso é explicado na apresentação. O pedido no serviço de Pedidos registra a hora real.
 
+**Exceção (etapa 2):** a rodada automática de 10 s (D4) corre na **hora real**. É um tempo técnico de espera das respostas automáticas; no relógio acelerado, acabaria antes de as cotações chegarem.
+
 Como funciona está na [arquitetura](02-arquitetura-proposta.md), seção 7.
 
 ### D19. Motoristas e veículos
@@ -199,6 +201,8 @@ Quem recebe o quê está na [arquitetura](02-arquitetura-proposta.md), seção 8
 **Decisão:** um script publica no Kafka um `pedido_criado` falso, no formato do contrato combinado com o grupo de Pedidos (D2), e um consumidor de teste faz o papel do grupo de Pedidos na outra ponta. Ele é usado nos testes durante todo o desenvolvimento e na apresentação, caso a integração com os outros grupos não esteja pronta.
 
 Para o script não esconder uma divergência de contrato, ele valida o evento contra o mesmo JSON Schema que o serviço usa.
+
+Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferramentas.cancelar_pedido_falso` e o contêiner `pedidos-falso` (etapa 2), que consome os nossos eventos, registra as mudanças de status do pedido e cancela o pedido ao receber `frete_indisponivel`.
 
 ### D24. Repasse de conhecimento
 

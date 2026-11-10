@@ -198,7 +198,7 @@ O `pedidos-service` consome e move o pedido para `ENTREGUE`.
 }
 ```
 
-Só os nossos dois serviços usam. Cada cópia do `transportadoras-service` consome com o seu próprio grupo de consumidores, para todas receberem o ajuste (arquitetura, seção 7). Chave fixa `"relogio"`, para os ajustes ficarem em ordem.
+Só os nossos dois serviços usam. O `transportadoras-service` grava o ajuste na sua tabela `relogio`, que as duas cópias dele leem (arquitetura, seção 7). Chave fixa `"relogio"`, para os ajustes ficarem em ordem; mesmo assim, um ajuste com `versao` antiga é ignorado.
 
 ## 4. O que precisamos de cada grupo
 
