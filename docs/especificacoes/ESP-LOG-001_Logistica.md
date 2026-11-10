@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-LOG-001 |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `logistica-service`: solicitação de frete, escolha do frete, entrega e rastreio. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -274,15 +274,16 @@ ENTREGUE, CANCELADA e RECUSADA são finais. Rastreio de entrega encerrada é ign
 
 Toda rota, exceto as públicas, exige `Authorization: Bearer <token>`. Rotas públicas: `/health`, `/health/ready`, `/metrics`, `/docs` e `/openapi.json`.
 
-O token é o JWT RS256 do grupo de Autenticação (D25). O algoritmo vem da configuração `JWT_ALGORITHM`, nunca do cabeçalho do token. A chave pública vem do JWKS (`AUTH_JWKS_URL`), pelo `kid` do cabeçalho. Claims usados: `sub` (usuário), `tenant_id` (empresa), `active_scope`, `permissions`, `exp`. `sub` e `exp` são obrigatórios.
+O token é o JWT RS256 do grupo de Autenticação (D25). O algoritmo vem da configuração `JWT_ALGORITHM`, nunca do cabeçalho do token. A chave pública vem do JWKS (`AUTH_JWKS_URL`), pelo `kid` do cabeçalho. Claims usados (os do Identity-Service, `TokenIssuer.cs`): `sub` (usuário), `iss`, `aud`, `exp`, `platform_role` (`NONE`, `SUPPORT_AGENT` ou `PLATFORM_ADMIN`), `view_mode` (`NONE`, `SINGLE` ou `MACRO_GROUP`), `tenant_id` (empresa), `active_scope` e `permissions`. `sub`, `exp`, `iss` e `aud` são obrigatórios; `iss` deve ser `JWT_ISSUER` (padrão `"identity-service"`) e `aud` deve ser `JWT_AUDIENCE` (padrão `"b2b-platform"`).
 
 | Token | Perfil no módulo |
 |---|---|
-| `permissions` contém `"logistica:admin"` (qualquer `active_scope`) | `admin` |
+| `platform_role` `"PLATFORM_ADMIN"`, ou `permissions` contém `"logistica:admin"` (com qualquer `active_scope`, com ou sem empresa) | `admin` |
+| Sem `tenant_id` ou sem `active_scope` (token do login, `view_mode` `"NONE"`, ou de grupo, `"MACRO_GROUP"`) | 403 `CONTEXTO_NAO_SELECIONADO` |
 | `active_scope` `"BUYER"` | `comprador` |
 | `active_scope` `"SUPPLIER"` | `fornecedor` |
 | `active_scope` `"CARRIER"` | `transportadora` |
-| `active_scope` `"TENANT_ADMIN"` sem a permissão | 403 `PERFIL_NAO_PERMITIDO` |
+| `active_scope` `"TENANT_ADMIN"` sem ser administrador da plataforma | 403 `PERFIL_NAO_PERMITIDO` |
 | Outro `active_scope` | 403 `PERFIL_AUSENTE` |
 
 Verificação, nesta ordem (para no primeiro erro):
@@ -290,10 +291,9 @@ Verificação, nesta ordem (para no primeiro erro):
 1. Sem cabeçalho `Authorization: Bearer` → 401 `NAO_AUTENTICADO`.
 2. Cabeçalho do token ilegível ou sem `kid` → 401 `TOKEN_INVALIDO`.
 3. JWKS inacessível → 503 `AUTENTICACAO_INDISPONIVEL`. `kid` fora do JWKS → 401 `TOKEN_INVALIDO`.
-4. Assinatura inválida, algoritmo diferente do configurado, sem `sub` ou sem `exp` → 401 `TOKEN_INVALIDO`. Expirado (com assinatura válida) → 401 `TOKEN_EXPIRADO`.
-5. `tenant_id` ausente ou vazio → 401 `TOKEN_INVALIDO`.
-6. Tradução do perfil (tabela acima).
-7. Perfil fora dos permitidos da rota → 403 `PERFIL_NAO_PERMITIDO`.
+4. Assinatura inválida, algoritmo diferente do configurado, sem `sub`, `exp`, `iss` ou `aud`, ou `iss` ou `aud` diferentes dos configurados → 401 `TOKEN_INVALIDO`. Expirado (com assinatura válida) → 401 `TOKEN_EXPIRADO`.
+5. Tradução do perfil, na ordem da tabela acima (o administrador da plataforma vem antes da falta de contexto).
+6. Perfil fora dos permitidos da rota → 403 `PERFIL_NAO_PERMITIDO`.
 
 Onde `JWT_ALGORITHM=HS256` (formato do kit da Infraestrutura), o token é conferido com `JWT_SECRET_KEY`, e os claims são `sub`, `empresaId` (ou `empresa_id`), `perfil` (um dos 4 perfis) e `exp`. O padrão é `RS256`.
 
@@ -793,8 +793,10 @@ Todos os CAs partem deste cenário e dizem só o que muda. Os CAs são verificad
 | U-COMP2 | `usr-comprador-2` | `emp-comprador-2` | `BUYER` | `[]` | comprador |
 | U-FORN | `usr-fornecedor-1` | `emp-fornecedor-1` | `SUPPLIER` | `[]` | fornecedor |
 | U-TRANSP | `usr-transp-rodovia` | `emp-transp-rodovia` | `CARRIER` | `[]` | transportadora |
-| U-ADM | `usr-admin` | `emp-portal` | `TENANT_ADMIN` | `["logistica:admin"]` | admin |
+| U-ADM | `usr-admin` | `emp-portal` | `TENANT_ADMIN` | `[]` | admin (`platform_role` `PLATFORM_ADMIN`) |
 | U-TADM | `usr-gestor-1` | `emp-comprador-1` | `TENANT_ADMIN` | `[]` | (sem acesso) |
+
+Todos os tokens têm `iss` `"identity-service"`, `aud` `"b2b-platform"` e `view_mode` `"SINGLE"`; `platform_role` é `"NONE"`, exceto em U-ADM.
 
 **Pedidos de referência** (publicados em `pedido_criado`, envelope como no §7.3):
 
@@ -1020,6 +1022,14 @@ Cenário: Casos do token (verificados também por teste unitário)
   Então a resposta é 503 com codigo "AUTENTICACAO_INDISPONIVEL"
   Quando o token foi assinado com HS256 e JWT_ALGORITHM é RS256
   Então a resposta é 401 com codigo "TOKEN_INVALIDO"
+  Quando o token tem aud "outro-sistema", ou não tem aud, ou tem iss "servico-falso"
+  Então a resposta é 401 com codigo "TOKEN_INVALIDO"
+  Quando o token é o do login (view_mode "NONE", sem tenant_id nem active_scope) ou de grupo (view_mode "MACRO_GROUP", sem tenant_id)
+  Então a resposta é 403 com codigo "CONTEXTO_NAO_SELECIONADO"
+  Quando o token tem platform_role "PLATFORM_ADMIN" e view_mode "NONE"
+  Então o usuário é admin (a API-12 e a API-13 respondem 200)
+  Quando o token tem platform_role "SUPPORT_AGENT" e active_scope "TENANT_ADMIN"
+  Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
 ```
 
 ### RF-06 — Escolha do frete pelo comprador
@@ -1518,10 +1528,11 @@ Formato único (RFC 7807), com `Content-Type: application/problem+json`:
 | Código | HTTP | Quando ocorre |
 |---|---|---|
 | `NAO_AUTENTICADO` | 401 | Sem `Authorization: Bearer` (§7.1, passo 1). |
-| `TOKEN_INVALIDO` | 401 | Token ilegível, sem `kid`, `kid` desconhecido, assinatura ou algoritmo inválido, sem `sub`, `exp` ou `tenant_id` (§7.1). |
+| `TOKEN_INVALIDO` | 401 | Token ilegível, sem `kid`, `kid` desconhecido, assinatura ou algoritmo inválido, sem `sub` ou `exp`, `iss` ou `aud` ausentes ou diferentes dos configurados (§7.1). |
 | `TOKEN_EXPIRADO` | 401 | `exp` no passado, com assinatura válida. |
 | `AUTENTICACAO_INDISPONIVEL` | 503 | JWKS inacessível. |
-| `PERFIL_NAO_PERMITIDO` | 403 | Perfil fora dos permitidos da rota, ou `TENANT_ADMIN` sem `logistica:admin`. |
+| `PERFIL_NAO_PERMITIDO` | 403 | Perfil fora dos permitidos da rota, ou `TENANT_ADMIN` sem ser administrador da plataforma. |
+| `CONTEXTO_NAO_SELECIONADO` | 403 | Token sem empresa ou sem escopo ativo (`view_mode` `NONE` ou `MACRO_GROUP`), de quem não é administrador da plataforma. |
 | `PERFIL_AUSENTE` | 403 | `active_scope` desconhecido (ou, no formato HS256, `perfil` fora dos 4). |
 | `DADOS_INVALIDOS` | 422 | JSON ilegível; corpo, parâmetro ou cabeçalho fora das restrições. |
 | `IDEMPOTENCY_KEY_AUSENTE` | 400 | API-06 sem `Idempotency-Key` útil (RN-15). |
@@ -1660,7 +1671,7 @@ Os CAs do token (CA-20) são cobertos pelos testes unitários de `comum/tests/te
 | Q-02 | Decisão (D18) | O relógio só acelera e adianta; não pode ser posto num instante exato nem voltar. | Os CAs com data usam T0 como referência. Num ambiente com outra hora, o QA confere as mesmas relações (RN-03, RN-04) a partir do `aberta_em` devolvido. |
 | Q-03 | Decisão (D5) | Quem escolhe o frete. | O comprador, em até 12 h, ou o botão automático; depois, a regra do kit. **Depende do professor (P2).** Se mudar, mudam RF-06, RF-07 e RN-12. |
 | Q-04 | Decisão (D12) | Tópicos `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` não existem no kit. | Usados como descritos. **Dependem da Infraestrutura (P3).** |
-| Q-05 | Decisão (D25) | Token e perfil de administrador. | RS256 da Autenticação; admin = permissão `logistica:admin`; `TENANT_ADMIN` sozinho não acessa. **A Autenticação ainda precisa confirmar a permissão.** |
+| Q-05 | Decisão (D25) | Token e perfil de administrador. | RS256 do Identity-Service, com `iss` e `aud` conferidos; admin = `platform_role` `PLATFORM_ADMIN` (o administrador global do Identity-Service) ou a permissão `logistica:admin`; `TENANT_ADMIN` sozinho não acessa. Confirmado no código e no seed do Identity-Service (10/11/2026). |
 | Q-06 | Decisão | Escopo desta versão. | A v1.0 cobre o núcleo do fluxo do frete. Notificações, ocorrências e documentos em PDF entram na v1.1. |
 | Q-07 | Decisão | `PRAZO_DE_ESCOLHA_ENCERRADO` só aparece no intervalo entre o vencimento e a próxima volta da rotina de prazos (até 1 s); depois, a resposta é `FRETE_JA_ESCOLHIDO`. | O CA-31 aceita os dois códigos e confere o resultado final. |
 | Q-08 | Decisão | Corpo com JSON ilegível. | 422 `DADOS_INVALIDOS` antes da autenticação: o framework lê o corpo antes de resolver as dependências. |
@@ -1707,6 +1718,7 @@ Q-03, Q-04, Q-05 e Q-11 têm decisão tomada e implementada; o que falta é a co
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.1 | 2026-11-10 | Grupo 5 | Token conforme o código do Identity-Service: `iss` e `aud` conferidos (antes, todo token real seria recusado, porque o PyJWT recusa `aud` não esperado), admin pelo `platform_role` `PLATFORM_ADMIN` e 403 `CONTEXTO_NAO_SELECIONADO` para token sem empresa ou escopo (§7.1, §10, CA-20, Q-05). |
 | 1.0 | 2026-11-10 | Grupo 5 | Criação, a partir do serviço implementado (etapas 1 a 5) e de respostas reais capturadas no ambiente. Ao escrever as duas especificações, quatro defeitos foram corrigidos no código (explicação 07). Os que afetam este documento: `VIAGEM_ALOCADA` sem `posicao` passava no contrato (agora vai direto à DLT, CA-50) e fator do relógio com mais de 2 casas respondia 500 ou era gravado diferente do publicado (agora 422, CA-59). Os outros dois estão na ESP-TRP-001. |
 
 ## Apêndice A — Tabela de cidades

@@ -429,9 +429,9 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 ### ADR-026: Token do grupo de Autenticação
 
 - **Contexto:** o kit usa HS256 com chave compartilhada, o que permite a qualquer serviço emitir tokens. O grupo de Autenticação definiu RS256 com JWKS e os claims `tenant_id` e `active_scope` (L16).
-- **Decisão:** validar o token RS256 com a chave pública do `kid` (JWKS com cache de 1 hora), com o algoritmo fixo na configuração. `BUYER`, `SUPPLIER` e `CARRIER` viram comprador, fornecedor e transportadora; o admin do módulo é quem tem a permissão `logistica:admin`; `TENANT_ADMIN` sozinho recebe 403. `JWT_ALGORITHM=HS256` volta ao formato do kit.
+- **Decisão:** validar o token RS256 com a chave pública do `kid` (JWKS com cache de 1 hora), com o algoritmo fixo na configuração. `BUYER`, `SUPPLIER` e `CARRIER` viram comprador, fornecedor e transportadora; `iss` (`identity-service`) e `aud` (`b2b-platform`) são conferidos; o admin do módulo é o administrador da plataforma (`platform_role` `PLATFORM_ADMIN`, ou a permissão `logistica:admin`); `TENANT_ADMIN` sozinho recebe 403; token sem empresa ou escopo (login, visão de grupo) recebe 403 `CONTEXTO_NAO_SELECIONADO`. `JWT_ALGORITHM=HS256` volta ao formato do kit.
 - **Alternativas:** esperar o kit mudar (o login real não funcionaria); tratar `TENANT_ADMIN` como admin (o administrador de uma empresa veria as entregas de todas e mexeria no relógio).
-- **Consequências:** nenhum serviço consegue forjar token; o portal entra com o mesmo token dos outros grupos. A permissão `logistica:admin` ainda precisa ser confirmada pela Autenticação.
+- **Consequências:** nenhum serviço consegue forjar token; o portal entra com o mesmo token dos outros grupos. Revisado em 10/11/2026 com o código do Identity-Service: a primeira versão não conferia `aud`, e o PyJWT recusa um token com `aud` quando a audiência esperada não é informada, então todo token real seria recusado com 401 ([explicação 08](explicacoes/08-token-do-identity-service.md)).
 
 ## 13. Limitações conhecidas
 
@@ -446,7 +446,6 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 | Carga de escrita não medida | O critério de escrita do kit (p95 ≤ 1000 ms) não foi verificado | Cenário k6 de escolha de frete |
 | Notificações por empresa, não por usuário | Todos da empresa veem as mesmas | Destinatário por usuário |
 | Login de demonstração com token de 8 h | Só desenvolvimento | Usar o `usuarios-service` |
-| Permissão `logistica:admin` é proposta nossa | Sem ela, ninguém da Autenticação real consegue ser admin do módulo (relógio, todas as entregas) | Confirmar com a Autenticação (ADR-026) |
 | Tela de login só de demonstração | O portal entra pelo `usuarios-falso`, não pelo login e pela troca de contexto da Autenticação | Usar o login da Autenticação no gateway |
 | Especificações ERS-LLM ainda sem a revisão do QA (gate G1) | Podem mudar depois da revisão; notificações, ocorrências e documentos ficaram para a versão 1.1 | Revisão do QA; ESP 1.1 |
 | O relógio do módulo só acelera e adianta | Um teste não consegue pôr o relógio num instante exato; os critérios com data conferem relações a partir do `aberta_em` | Rota de teste para fixar o relógio, só no ambiente de desenvolvimento |
@@ -477,7 +476,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 | Infraestrutura | Tópicos novos, consumidores novos, correções do kit, caminho das telas no gateway |
 | Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
 | Fornecimento e Produtos | Atendido em 10/11/2026: listas confirmadas, origem do fornecimento em cidade e UF e `pesoUnitarioKg` no produto. Falta só avisar que já usamos RS256 |
-| Autenticação | Confirmar a permissão `logistica:admin` (ADR-026; `TENANT_ADMIN` já confirmado como administrador só da empresa); cidade e UF da empresa, que o `empresa_cadastrada` (agora em camelCase) não traz |
+| Autenticação | Cidade e UF da empresa, que o `empresa_cadastrada` (agora em camelCase) não traz. O administrador do módulo já está resolvido pelo `platform_role` `PLATFORM_ADMIN` (ADR-026) |
 | Turma | Padrão único do erro: `codigo` (nós e Produtos) ou `code` (proposta da Autenticação) |
 | Teste e Qualidade | Revisar a ESP-LOG-001 e a ESP-TRP-001 (gate G1) |
 | Professor | P1 (posição simulada), P2 (escolha pelo comprador), P3 (tópicos novos), data da apresentação |
@@ -496,4 +495,5 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (16 r
 |---|---|---|
 | 1.0 | 10/11/2026 | Primeira versão, ao fim da etapa 5 (testes de integração e de carga) |
 | 1.1 | 10/11/2026 | Integração com as definições dos outros grupos: token RS256 da Autenticação (ADR-026), DLT no formato do kit, `fornecimentoId` aceito no `pedido_criado`, pendências da seção 15 |
+| 1.3 | 10/11/2026 | Token conforme o código do Identity-Service: `iss` e `aud` conferidos, admin pelo `platform_role` (ADR-026) |
 | 1.2 | 10/11/2026 | Especificações ESP-LOG-001 e ESP-TRP-001 (seção 11.5) e os quatro defeitos achados ao escrevê-las; 104 testes unitários e 6 de integração |

@@ -36,7 +36,7 @@ Situações:
 | D22 | Avisos a comprador e fornecedor | Notificações dentro do portal | Aceita |
 | D23 | Contingência | Script que publica pedidos falsos no Kafka | Aceita |
 | D24 | Repasse de conhecimento | Um arquivo de explicação por parte pronta | Aceita |
-| D25 | Token do grupo de Autenticação | Token RS256 da Autenticação (JWKS, `tenant_id`, `active_scope`); o formato do kit (HS256) continua por configuração | Aceita, depende da Autenticação (permissão `logistica:admin`) e da Infra (kit) |
+| D25 | Token do grupo de Autenticação | Token RS256 da Autenticação (JWKS, `tenant_id`, `active_scope`); o formato do kit (HS256) continua por configuração | Aceita; admin pelo `platform_role` `PLATFORM_ADMIN` do Identity-Service. Depende da Infra (kit) |
 
 ## 2. Decisões
 
@@ -231,14 +231,15 @@ Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferram
 
 1. O token é validado com RS256 e a chave pública do `kid`, buscada no JWKS (`AUTH_JWKS_URL`) e guardada por 1 hora. O algoritmo vem da configuração, nunca do token. Um `kid` novo (troca de chave) faz uma nova busca, no máximo a cada 5 s.
 2. Tradução para os perfis do módulo: `BUYER` → comprador, `SUPPLIER` → fornecedor, `CARRIER` → transportadora; `tenant_id` é a empresa.
-3. `TENANT_ADMIN` **não** vira o nosso `admin`: ele administra uma empresa, e o nosso admin vê as entregas de todas e mexe no relógio do módulo. O admin da plataforma é quem tem a permissão `logistica:admin` em `permissions` (proposta nossa à Autenticação, no padrão `recurso:ação` que eles já usam). `TENANT_ADMIN` sem a permissão recebe 403 com a orientação de trocar o contexto.
+3. `TENANT_ADMIN` **não** vira o nosso `admin`: ele administra uma empresa, e o nosso admin vê as entregas de todas e mexe no relógio do módulo. O admin da plataforma é quem tem `platform_role` `PLATFORM_ADMIN` no token (o administrador global do Identity-Service, como o `platform-admin@agrobrasil.com.br` do seed deles), ou, como alternativa nossa, a permissão `logistica:admin`. `TENANT_ADMIN` sem isso recebe 403 com a orientação de trocar o contexto.
+7. (10/11/2026, conforme o código do Identity-Service) O token traz `iss` `identity-service` e `aud` `b2b-platform`, conferidos (`JWT_ISSUER`, `JWT_AUDIENCE`). Token sem empresa ou sem escopo ativo (`view_mode` `NONE`, logo depois do login, ou `MACRO_GROUP`) recebe 403 `CONTEXTO_NAO_SELECIONADO`, não 401, para a tela pedir a troca de contexto em vez de deslogar.
 4. A transportadora continua ligada à empresa pelo `empresa_id`, que passa a ser o `tenant_id` da empresa com escopo `CARRIER`.
 5. `JWT_ALGORITHM=HS256` volta ao formato do kit (`empresaId`, `perfil`, `JWT_SECRET_KEY`), para rodar com o kit enquanto ele não for atualizado.
 6. No desenvolvimento, o `usuarios-falso` emite tokens RS256 no formato da Autenticação e publica o próprio JWKS (também em `/.well-known/jwks.json` pelo portal).
 
 Implementado: `comum/comum/auth.py`, `comum/comum/ferramentas/usuarios_falso.py` e `gerar_token.py`, com 16 testes em `comum/tests/test_auth.py`.
 
-**Situação:** aceita. Falta a Autenticação confirmar a permissão `logistica:admin` e a Infra atualizar o kit.
+**Situação:** aceita. O administrador da plataforma está resolvido pelo `platform_role`. Falta a Infra atualizar o kit.
 
 ## 3. Perguntas para o professor
 

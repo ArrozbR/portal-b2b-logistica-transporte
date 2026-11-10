@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-TRP-001 |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `transportadoras-service`: transportadoras homologadas, frota, cotação, escala e viagem simulada. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -212,7 +212,7 @@ ENTREGUE e CANCELADA são finais. Sem frota livre na escala, não há viagem: pu
 
 ### 7.1 Autenticação e contexto da requisição
 
-Igual à ESP-LOG-001 (§7.1): token RS256 da Autenticação pelo JWKS, a mesma tradução de perfis, a mesma ordem de verificação e os mesmos códigos (`NAO_AUTENTICADO`, `TOKEN_INVALIDO`, `TOKEN_EXPIRADO`, `AUTENTICACAO_INDISPONIVEL`, `PERFIL_NAO_PERMITIDO`, `PERFIL_AUSENTE`), e o mesmo tratamento de `X-Correlation-Id`. Rotas públicas: `/health`, `/health/ready`, `/metrics`, `/docs` e `/openapi.json`.
+Igual à ESP-LOG-001 (§7.1): token RS256 da Autenticação pelo JWKS, a mesma tradução de perfis, a mesma ordem de verificação e os mesmos códigos (`NAO_AUTENTICADO`, `TOKEN_INVALIDO`, `TOKEN_EXPIRADO`, `AUTENTICACAO_INDISPONIVEL`, `PERFIL_NAO_PERMITIDO`, `PERFIL_AUSENTE`, `CONTEXTO_NAO_SELECIONADO`), inclusive a conferência de `iss` e `aud`, e o mesmo tratamento de `X-Correlation-Id`. Rotas públicas: `/health`, `/health/ready`, `/metrics`, `/docs` e `/openapi.json`.
 
 A transportadora do usuário é a que tem `empresa_id` igual ao `tenant_id` do token.
 
@@ -535,7 +535,7 @@ Os CAs são verificados como caixa-preta no ambiente do `docker-compose.yml`, co
 | U-EXP | `usr-transp-expressa` | `emp-transp-expressa` | `CARRIER` | `[]` | transportadora (`transp-expressa`) |
 | U-SEMT | `usr-transp-sem` | `emp-sem-frota` | `CARRIER` | `[]` | transportadora sem transportadora homologada |
 | U-COMP | `usr-comprador-1` | `emp-comprador-1` | `BUYER` | `[]` | comprador |
-| U-ADM | `usr-admin` | `emp-portal` | `TENANT_ADMIN` | `["logistica:admin"]` | admin |
+| U-ADM | `usr-admin` | `emp-portal` | `TENANT_ADMIN` | `[]` | admin (`platform_role` `PLATFORM_ADMIN`) |
 
 **Solicitações de referência** (publicadas em `solicitacao_frete_criada`; todas com `dataColetaPrevista` `"2026-11-11"`, `prazoDecisaoEm` `"2026-11-11T00:00:00.000Z"` e `status` `"ABERTA"`):
 
@@ -1033,7 +1033,7 @@ Cenário: DLT do serviço
 
 ## 10. Catálogo de erros
 
-Formato RFC 7807 com `codigo`, igual ao da ESP-LOG-001 (§10), inclusive `DADOS_INVALIDOS` com `erros`. Os códigos de autenticação (`NAO_AUTENTICADO`, `TOKEN_INVALIDO`, `TOKEN_EXPIRADO`, `AUTENTICACAO_INDISPONIVEL`, `PERFIL_NAO_PERMITIDO`, `PERFIL_AUSENTE`) e `DADOS_INVALIDOS` são os mesmos.
+Formato RFC 7807 com `codigo`, igual ao da ESP-LOG-001 (§10), inclusive `DADOS_INVALIDOS` com `erros`. Os códigos de autenticação (`NAO_AUTENTICADO`, `TOKEN_INVALIDO`, `TOKEN_EXPIRADO`, `AUTENTICACAO_INDISPONIVEL`, `PERFIL_NAO_PERMITIDO`, `PERFIL_AUSENTE`, `CONTEXTO_NAO_SELECIONADO`) e `DADOS_INVALIDOS` são os mesmos.
 
 | Código | HTTP | Quando ocorre |
 |---|---|---|
@@ -1191,6 +1191,7 @@ O CA-28 vem depois do CA-27 no RF-09 porque depende da escala. Os atributos inte
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.1 | 2026-11-10 | Grupo 5 | Token conforme o código do Identity-Service, como na ESP-LOG-001 1.1 (§7.1). |
 | 1.0 | 2026-11-10 | Grupo 5 | Criação, a partir do serviço implementado e de respostas reais do ambiente. Corrigidos no código ao escrever: alteração de motorista ou veículo com CNH ou placa duplicada (500 → 409) e situação da carga de pedido cancelado ("VENCEU" → "CANCELADA"). |
 
 ## Apêndice A — Seeds do ambiente de teste

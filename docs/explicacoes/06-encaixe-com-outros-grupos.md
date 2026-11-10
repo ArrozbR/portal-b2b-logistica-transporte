@@ -52,7 +52,9 @@ Dois cuidados:
 | permissão `logistica:admin` | admin |
 | `active_scope` TENANT_ADMIN, sem a permissão | 403 |
 
-O `TENANT_ADMIN` é o administrador **de uma empresa**. O nosso admin vê as entregas de todas as empresas e mexe no relógio do módulo. Se os dois fossem a mesma coisa, o administrador de qualquer empresa veria as entregas dos concorrentes. Por isso o admin do módulo é quem tem a permissão `logistica:admin`, no padrão `recurso:ação` que a Autenticação já usa (`produtos:criar`). Ainda falta a Autenticação confirmar.
+O `TENANT_ADMIN` é o administrador **de uma empresa**. O nosso admin vê as entregas de todas as empresas e mexe no relógio do módulo. Se os dois fossem a mesma coisa, o administrador de qualquer empresa veria as entregas dos concorrentes. Por isso o admin do módulo é quem tem a permissão `logistica:admin`, no padrão `recurso:ação` que a Autenticação já usa (`produtos:criar`).
+
+> **Atualizado depois:** o código do Identity-Service tem o administrador global da plataforma (`platform_role` `PLATFORM_ADMIN`), e é ele o admin do módulo agora; `logistica:admin` ficou como alternativa. O token deles também traz `iss` e `aud`, que passamos a conferir. Ver a [explicação 08](08-token-do-identity-service.md).
 
 ### 3.3 O defeito: cancelamento chegando antes da escolha
 

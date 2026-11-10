@@ -64,6 +64,7 @@ Repositórios dos outros grupos usados como referência (só leitura):
 - Fornecimento e Produtos: <https://github.com/davicalvarenga/Sistema-MicServ-SD>
 - UX/UI (mockups das telas de fretes e rastreamento): <https://github.com/HugoParzival007/portal-b2b-UI-UX>
 - Teste e Qualidade (modelo ERS-LLM): <https://github.com/AmandaBfa/AED---Processo-e-Artefato-SD->
+- Autenticação (Identity-Service, em C#; token, JWKS, switch-context, `empresa_cadastrada`): <https://github.com/Matheus-Allvz/Identity-Service>
 
 ## Regras de arquitetura do kit (valem para todo código)
 
@@ -91,7 +92,7 @@ Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com
   - `outbox.gravar_evento(conn, ...)` para publicar qualquer evento, sempre dentro da transação da alteração;
   - `consumidor.ConsumidorIdempotente` para consumir; tratadores recebem `(conn, envelope)` e levantam `EventoInvalido` para mandar direto à DLT (payload no formato do kit: `originalEvent`, `error`, `stackTrace`, `failedAtAttempt`);
   - `erros.Problema(status, codigo, titulo, detalhe)` para erros de negócio (vira RFC 7807);
-  - `auth.exigir_perfis(...)`, `web.paginacao`, `web.resposta_paginada`. O token é o RS256 do grupo de Autenticação, validado pelo JWKS (`AUTH_JWKS_URL`), com `active_scope` traduzido para os perfis do módulo; admin é quem tem a permissão `logistica:admin` (D25). `JWT_ALGORITHM=HS256` volta ao formato do kit;
+  - `auth.exigir_perfis(...)`, `web.paginacao`, `web.resposta_paginada`. O token é o RS256 do grupo de Autenticação, validado pelo JWKS (`AUTH_JWKS_URL`), com `iss`/`aud` conferidos (`JWT_ISSUER`, `JWT_AUDIENCE`) e `active_scope` traduzido para os perfis do módulo; admin é o `platform_role` `PLATFORM_ADMIN` (ou a permissão `logistica:admin`); token sem empresa ou escopo → 403 `CONTEXTO_NAO_SELECIONADO` (D25). Referência do token: o repositório do Identity-Service (`TokenIssuer.cs`). `JWT_ALGORITHM=HS256` volta ao formato do kit;
   - `relogio.Relogio.agora(conn)` para qualquer hora de negócio (nunca `datetime.now()` em regra de negócio). Exceção: tempos técnicos de espera da rede, como a rodada de 10 s, usam hora real. Não coloque cache no relógio: com fator alto, as cópias divergem;
   - `logs.correlacao(id)` em rotinas de segundo plano, para os logs levarem o `correlationId`;
   - notificações com `logistica/notificacoes.notificar(conn, ...)`, na mesma transação da mudança;
