@@ -31,24 +31,33 @@ def _local(texto: str) -> dict:
     return {"cidade": cidade.strip(), "uf": uf.strip().upper()}
 
 
-def montar_payload(args: argparse.Namespace) -> dict:
+def montar_pedido(*, origem: dict, destino: dict, tipo: str, peso: float, produto: str, valor: float,
+                  produto_id: str = "prod-teste", comprador: str = "emp-comprador-1",
+                  fornecedor: str = "emp-fornecedor-1", pedido_id: str | None = None) -> dict:
+    """Payload do pedido_criado. Também usado pela rota do pedidos-falso (botão do admin)."""
     return {
-        "pedidoId": args.pedido_id or f"ped-{uuid.uuid4().hex[:8]}",
+        "pedidoId": pedido_id or f"ped-{uuid.uuid4().hex[:8]}",
         "negociacaoId": f"neg-{uuid.uuid4().hex[:8]}",
-        "compradorId": args.comprador,
-        "fornecedorId": args.fornecedor,
-        "produtoId": args.produto_id,
+        "compradorId": comprador,
+        "fornecedorId": fornecedor,
+        "produtoId": produto_id,
         "fornecimentoId": f"forn-{uuid.uuid4().hex[:8]}",  # pedido do grupo de Fornecimento e Produtos
-        "produtoNome": args.produto,
-        "quantidade": args.peso,
+        "produtoNome": produto,
+        "quantidade": peso,
         "unidade": "KG",
-        "pesoKg": args.peso,
-        "tipoTransporte": args.tipo,
-        "valorTotal": args.valor,
-        "origem": args.origem,
-        "destino": args.destino,
+        "pesoKg": peso,
+        "tipoTransporte": tipo,
+        "valorTotal": valor,
+        "origem": origem,
+        "destino": destino,
         "status": "CRIADO",
     }
+
+
+def montar_payload(args: argparse.Namespace) -> dict:
+    return montar_pedido(origem=args.origem, destino=args.destino, tipo=args.tipo, peso=args.peso,
+                         produto=args.produto, valor=args.valor, produto_id=args.produto_id,
+                         comprador=args.comprador, fornecedor=args.fornecedor, pedido_id=args.pedido_id)
 
 
 async def publicar(envelope: dict, repetir: int) -> None:

@@ -160,16 +160,24 @@ services:
     ports:
       - "8119:8109"
 
-  # Faz o papel do grupo de Pedidos na outra ponta (D23): registra as mudanças
-  # de status do pedido e cancela o pedido quando chega frete_indisponivel.
-  # Desligue quando o pedidos-service real estiver integrado.
+  # SOMENTE DESENVOLVIMENTO: faz o papel do grupo de Pedidos (D23). Cria pedidos
+  # de teste (botão do admin na tela de solicitações, publica pedido_criado),
+  # registra as mudanças de status do pedido e cancela o pedido quando chega
+  # frete_indisponivel. Desligue quando o pedidos-service real estiver integrado.
   pedidos-falso:
     image: grupo5/logistica-service:dev
     pull_policy: never
-    command: ["python", "-m", "comum.ferramentas.pedidos_falso"]
+    command: ["uvicorn", "comum.ferramentas.pedidos_falso:app", "--host", "0.0.0.0", "--port", "8102"]
     restart: unless-stopped
     environment:
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      # Só o administrador cria pedidos: valida o token como os nossos serviços.
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-http://usuarios-falso:8101/.well-known/jwks.json}
+      JWT_ISSUER: ${JWT_ISSUER:-identity-service}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-b2b-platform}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-somente-desenvolvimento-local-troque-esta-chave}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       topicos:
         condition: service_completed_successfully
@@ -212,6 +220,8 @@ services:
       transportadoras-2:
         condition: service_started
       usuarios-falso:
+        condition: service_started
+      pedidos-falso:
         condition: service_started
 
 volumes:
