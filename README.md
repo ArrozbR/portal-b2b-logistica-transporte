@@ -119,7 +119,7 @@ python -m venv .venv
 Testes de integração e de carga, com o ambiente no ar (eles aceleram o relógio e derrubam contêineres; não rode durante uma demonstração):
 
 ```bash
-.venv/Scripts/python -m pytest testes_integracao -v      # os 3 cenários distribuídos e o fluxo completo (~3 min)
+.venv/Scripts/python -m pytest testes_integracao -v      # os 4 cenários distribuídos e o fluxo completo (~3 min)
 docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js
 ```
 

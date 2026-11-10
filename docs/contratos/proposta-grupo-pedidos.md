@@ -32,6 +32,7 @@ Exemplo completo do payload:
   "compradorId": "emp-12",
   "fornecedorId": "emp-34",
   "produtoId": "prod-1",
+  "fornecimentoId": "forn-55",
   "produtoNome": "Soja em grão",
   "quantidade": 24000,
   "unidade": "KG",
@@ -46,6 +47,8 @@ Exemplo completo do payload:
 ```
 
 Os campos são **adicionais**: quem já consome o `pedido_criado` (Fornecimentos) não é afetado.
+
+O `fornecimentoId` do exemplo não é pedido nosso: é do grupo de Fornecimento e Produtos, que precisa dele para reservar o estoque (issue #1 do repositório deles). Os dois pedidos são compatíveis e podem entrar juntos. Pelo mesmo motivo, eles propõem os status `CANCELADO` e `VENDA_CONCLUIDA` no `pedido_atualizado`; o nosso consumidor age só no `CANCELADO` e ignora os outros.
 
 ## 2. Eventos da logística que o `pedidos-service` precisa consumir
 

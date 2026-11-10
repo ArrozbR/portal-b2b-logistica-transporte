@@ -209,7 +209,7 @@ Só os nossos dois serviços usam. O `transportadoras-service` grava o ajuste na
 | | Origem do fornecimento em cidade e UF, para servir de origem da coleta (P-05 deles) | Alta |
 | | Peso por unidade no produto (por exemplo `pesoUnitarioKg`), porque com `UN`, `CX` e `L` não dá para calcular o `pesoKg` | Média |
 | **Autenticação** | `empresa_cadastrada`: o tipo da empresa já vem em `scopes` (`CARRIER`) e a localização em `geo_lat`/`geo_lng`, mas sem cidade e UF (issue #2 de Fornecimento e Produtos) | Média |
-| | Token: definido como RS256 com `tenant_id` e `active_scope`, diferente do kit (D25). Falta saber como identificar o administrador da plataforma | Alta |
+| | Token RS256 com `tenant_id` e `active_scope` já aceito (D25). Confirmar a permissão `logistica:admin` em `permissions` para o administrador da plataforma | Alta |
 | **Compra e Demanda** | Se o destino vier da demanda, incluir cidade e UF de entrega em `demanda_criada` para chegar até o pedido | Média |
 | **Infraestrutura** | Criar `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` no `init_topics.sh` e no `CONTRACTS.md` | Alta |
 | | Registrar `transportadoras-service` como consumidor de `frete_selecionado` e de `pedido_atualizado` | Média |

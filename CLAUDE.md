@@ -88,9 +88,9 @@ Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com
 
 - `comum/comum/`: pacote compartilhado (instalado nas duas imagens). Use o que já existe antes de escrever de novo:
   - `outbox.gravar_evento(conn, ...)` para publicar qualquer evento, sempre dentro da transação da alteração;
-  - `consumidor.ConsumidorIdempotente` para consumir; tratadores recebem `(conn, envelope)` e levantam `EventoInvalido` para mandar direto à DLT;
+  - `consumidor.ConsumidorIdempotente` para consumir; tratadores recebem `(conn, envelope)` e levantam `EventoInvalido` para mandar direto à DLT (payload no formato do kit: `originalEvent`, `error`, `stackTrace`, `failedAtAttempt`);
   - `erros.Problema(status, codigo, titulo, detalhe)` para erros de negócio (vira RFC 7807);
-  - `auth.exigir_perfis(...)`, `web.paginacao`, `web.resposta_paginada`;
+  - `auth.exigir_perfis(...)`, `web.paginacao`, `web.resposta_paginada`. O token é o RS256 do grupo de Autenticação, validado pelo JWKS (`AUTH_JWKS_URL`), com `active_scope` traduzido para os perfis do módulo; admin é quem tem a permissão `logistica:admin` (D25). `JWT_ALGORITHM=HS256` volta ao formato do kit;
   - `relogio.Relogio.agora(conn)` para qualquer hora de negócio (nunca `datetime.now()` em regra de negócio). Exceção: tempos técnicos de espera da rede, como a rodada de 10 s, usam hora real. Não coloque cache no relógio: com fator alto, as cópias divergem;
   - `logs.correlacao(id)` em rotinas de segundo plano, para os logs levarem o `correlationId`;
   - notificações com `logistica/notificacoes.notificar(conn, ...)`, na mesma transação da mudança;
@@ -99,7 +99,7 @@ Python 3.12 nos contêineres, FastAPI, `aiokafka`, `psycopg` 3 (assíncrono, com
 - Reserva de recurso disputado entre as cópias (caminhão, motorista, escolha do frete): gravação condicional (`UPDATE ... WHERE <ainda livre>` e conferir `rowcount`), não `FOR UPDATE` em listas inteiras.
 - `frontend/`: telas estáticas (HTML, CSS, JS puro e Leaflet), servidas pelo contêiner `portal` (`infra/portal/`), que também faz o papel do gateway. `assets/portal.js` tem a sessão, a chamada à API (com erros RFC 7807), o relógio e o sino; cada página tem o seu `.js`. Não use `alert()` nem `confirm()`: use `Portal.avisoRapido` e `Portal.modal`. Arquivos com autenticação (PDF) são baixados com `Portal.baixar`. Cada página declara os perfis que a usam em `Portal.iniciar({ perfis })`. Teste a sintaxe com `node --check`.
 - Transportadora `simulada = TRUE` cota sozinha; `simulada = FALSE` (Rodovia Sul, no seed) só cota digitando (`cotar_manualmente`).
-- `testes_integracao/`: rodam contra o ambiente no ar. Use `apoio.py` (`consultar`, `publicar_pedido`, `mensagens_do_topico`, `esperar`, `docker_compose`, `metrica`) e as fixtures `api`, `entrar` e `relogio` do `conftest.py`. Confira o resultado no banco, na outbox e no tópico, não só na resposta da API.
+- `testes_integracao/`: rodam contra o ambiente no ar. Use `apoio.py` (`consultar`, `publicar_pedido`, `publicar`, `mensagens_do_topico`, `esperar`, `docker_compose`, `metrica`) e as fixtures `api`, `entrar` e `relogio` do `conftest.py`. Confira o resultado no banco, na outbox e no tópico, não só na resposta da API. Pedidos de teste usam o prefixo `ped-it-`: antes e depois de cada teste, os que ficaram em aberto são cancelados (senão o relógio acelerado os escolhe e ocupa a frota do teste seguinte).
 - `services/<servico>/migracoes/NNN_*.sql`: DDL executado como `portal_ddl`; terminar com os GRANTs para o `svc_*`. Migrações só rodam com o volume do Postgres vazio (`docker compose down -v`).
 - Os boilerplates do kit não consomem Kafka, guardam dados em memória e têm os problemas listados em `docs/04-analise-do-kit.md`. Não copie código deles sem aplicar as correções.
 

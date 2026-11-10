@@ -36,7 +36,7 @@ Situações:
 | D22 | Avisos a comprador e fornecedor | Notificações dentro do portal | Aceita |
 | D23 | Contingência | Script que publica pedidos falsos no Kafka | Aceita |
 | D24 | Repasse de conhecimento | Um arquivo de explicação por parte pronta | Aceita |
-| D25 | Token do grupo de Autenticação | Seguir o kit (HS256) até ele ser atualizado; preparar a troca para RS256 com `tenant_id` e `active_scope` | Em aberto, depende da Infra e da Autenticação |
+| D25 | Token do grupo de Autenticação | Token RS256 da Autenticação (JWKS, `tenant_id`, `active_scope`); o formato do kit (HS256) continua por configuração | Aceita, depende da Autenticação (permissão `logistica:admin`) e da Infra (kit) |
 
 ## 2. Decisões
 
@@ -225,17 +225,20 @@ Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferram
 
 ### D25. Token do grupo de Autenticação
 
-**Contexto:** o grupo de Autenticação definiu o token na issue #2 do repositório de Fornecimento e Produtos (09/11/2026): RS256, chaves públicas no `/.well-known/jwks.json` e claims `sub`, `tenant_id`, `group_id`, `active_scope` (`BUYER`, `SUPPLIER`, `CARRIER`, `TENANT_ADMIN`), `roles` e `permissions`. O kit, que tem precedência, ainda usa HS256 com `empresaId` e `perfil` (L16). O grupo de Produtos já mudou para RS256 e pediu à Infra que alinhe o kit.
+**Contexto:** o grupo de Autenticação definiu o token na issue #2 do repositório de Fornecimento e Produtos (09/11/2026): RS256, chaves públicas no `/.well-known/jwks.json` e claims `sub`, `tenant_id`, `group_id`, `active_scope` (`BUYER`, `SUPPLIER`, `CARRIER`, `TENANT_ADMIN`), `roles` e `permissions`. O kit ainda usa HS256 com `empresaId` e `perfil` (L16). O grupo de Produtos já mudou para RS256 e pediu à Infra que alinhe o kit.
 
-**Proposta:**
+**Decisão:** seguir o formato da Autenticação, que é o dono do login, como o grupo de Produtos fez.
 
-1. Seguir o kit até a Infra atualizá-lo. Preparar a troca para ser só configuração: `comum/auth.py` passa a aceitar RS256 com as chaves do JWKS (`PyJWKClient`, cache de 1 hora), sempre com o algoritmo fixo, nunca o declarado pelo token.
-2. Traduzir os claims: `tenant_id` vira a empresa; `active_scope` `BUYER`, `SUPPLIER` e `CARRIER` viram comprador, fornecedor e transportadora.
-3. `TENANT_ADMIN` **não** vira o nosso `admin`. Ele administra uma empresa; o nosso admin vê as entregas de todas e mexe no relógio do módulo. Perguntar à Autenticação como identificar o administrador da plataforma (um papel em `roles` ou uma permissão em `permissions`).
-4. A transportadora fica ligada ao `tenant_id` da empresa com escopo `CARRIER`. O `empresa_cadastrada` traz `scopes` e `geo_lat`/`geo_lng`, o que resolve o tipo da empresa e dá a localização (sem cidade e UF; a cidade mais próxima já é calculada em `comum/geo.py`).
-5. No desenvolvimento, o `usuarios-falso` passa a emitir RS256 e a publicar o próprio JWKS, para os testes passarem pelo mesmo caminho.
+1. O token é validado com RS256 e a chave pública do `kid`, buscada no JWKS (`AUTH_JWKS_URL`) e guardada por 1 hora. O algoritmo vem da configuração, nunca do token. Um `kid` novo (troca de chave) faz uma nova busca, no máximo a cada 5 s.
+2. Tradução para os perfis do módulo: `BUYER` → comprador, `SUPPLIER` → fornecedor, `CARRIER` → transportadora; `tenant_id` é a empresa.
+3. `TENANT_ADMIN` **não** vira o nosso `admin`: ele administra uma empresa, e o nosso admin vê as entregas de todas e mexe no relógio do módulo. O admin da plataforma é quem tem a permissão `logistica:admin` em `permissions` (proposta nossa à Autenticação, no padrão `recurso:ação` que eles já usam). `TENANT_ADMIN` sem a permissão recebe 403 com a orientação de trocar o contexto.
+4. A transportadora continua ligada à empresa pelo `empresa_id`, que passa a ser o `tenant_id` da empresa com escopo `CARRIER`.
+5. `JWT_ALGORITHM=HS256` volta ao formato do kit (`empresaId`, `perfil`, `JWT_SECRET_KEY`), para rodar com o kit enquanto ele não for atualizado.
+6. No desenvolvimento, o `usuarios-falso` emite tokens RS256 no formato da Autenticação e publica o próprio JWKS (também em `/.well-known/jwks.json` pelo portal).
 
-**Situação:** em aberto, depende da Infra (kit) e da Autenticação (administrador da plataforma).
+Implementado: `comum/comum/auth.py`, `comum/comum/ferramentas/usuarios_falso.py` e `gerar_token.py`, com 16 testes em `comum/tests/test_auth.py`.
+
+**Situação:** aceita. Falta a Autenticação confirmar a permissão `logistica:admin` e a Infra atualizar o kit.
 
 ## 3. Perguntas para o professor
 

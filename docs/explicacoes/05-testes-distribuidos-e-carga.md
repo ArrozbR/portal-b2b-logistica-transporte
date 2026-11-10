@@ -135,6 +135,8 @@ Cuidados:
 | O leitor do tópico não achava as partições quando ainda não tinha pedido metadados ao cluster | Pede os metadados de todos os tópicos antes |
 | "Voltar para o começo do tópico" não reposicionava o leitor de fato | Busca o primeiro offset de cada partição e posiciona nele |
 
+Depois, uma rodada falhou porque um teste deixava pedidos em aberto que atrapalhavam o seguinte. A correção (limpeza entre testes) e um defeito real que apareceu na investigação estão na [explicação 06](06-encaixe-com-outros-grupos.md).
+
 ## 6. O relatório técnico
 
 O [relatório](../07-relatorio-tecnico.md) segue o modelo do grupo de Fornecimento e Produtos. Ele não repete os documentos de referência: resume e aponta para eles. As partes que mais interessam na apresentação:

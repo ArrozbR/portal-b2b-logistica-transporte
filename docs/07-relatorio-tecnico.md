@@ -139,13 +139,13 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 
 | Tema | Como foi tratado |
 |---|---|
-| Autenticação | JWT do `usuarios-service` (HS256, claims `sub`, `empresaId`/`empresa_id`, `perfil`, `exp`), validado em cada serviço, como no kit. O grupo de Autenticação definiu outro formato (RS256 e JWKS, `tenant_id`, `active_scope`); a troca é a proposta D25 |
+| Autenticação | Token RS256 do grupo de Autenticação, validado em cada serviço com a chave pública do JWKS (cache de 1 hora); claims `sub`, `tenant_id`, `active_scope`, `permissions`, `exp` (ADR-026). O formato do kit (HS256) continua disponível por configuração |
 | Autorização | Perfis por rota (`exigir_perfis`); visibilidade por empresa (comprador vê os seus pedidos; transportadora só a própria frota); recurso de outra empresa responde 404, não 403, para não revelar que existe |
 | Erros | Token ausente/expirado → 401; perfil errado ou ausente → 403 (o kit dava 500, K8) |
 | LGPD | CNH completa só no serviço de transportadoras; a logística recebe só os 4 últimos dígitos; telefone e CNH só para comprador e fornecedor da entrega (ADR-025) |
 | Banco | Cada serviço usa o seu `svc_*`, que só faz SELECT/INSERT/UPDATE/DELETE no próprio schema (K1, K2) |
 | Segredos | Padrões só de desenvolvimento no `docker-compose.yml`, sobrescritos pelo `.env` (fora do Git); chave JWT de 32+ caracteres |
-| Login de demonstração | `usuarios-falso` emite tokens só no ambiente de desenvolvimento (ADR-019) |
+| Login de demonstração | `usuarios-falso` emite tokens RS256 e publica o JWKS, só no ambiente de desenvolvimento (ADR-019, ADR-026) |
 
 ## 8. Persistência e consistência
 
@@ -156,14 +156,14 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 | Dois atores disputando o mesmo recurso (escolha do frete, troca de transportadora, caminhão) | Gravação condicional + conferência de `rowcount` | ADR-007 |
 | Tarefas com hora marcada nas duas cópias | `FOR UPDATE SKIP LOCKED` | ADR-008 |
 | Duas cópias vendo horas diferentes | Relógio lido do banco a cada uso, sem cache | ADR-009 |
-| Cancelamento chegando antes do pedido (tópicos diferentes) | Tabela `pedido_cancelado` | ADR-013 |
+| Cancelamento chegando antes do pedido ou da escolha do frete (tópicos diferentes) | Tabela `pedido_cancelado` na logística; solicitação marcada `cancelada` nas transportadoras | ADR-013 |
 | Notificação de algo que não aconteceu | Notificação na mesma transação da mudança | ADR-022 |
 
 ## 9. Tratamento de falhas
 
 | Falha | Comportamento | Verificado |
 |---|---|---|
-| Processamento falha (banco fora, por exemplo) | 3 novas tentativas (1 s, 2 s, 4 s), depois DLT | Só no código (`comum/consumidor.py`); sem teste automatizado |
+| Processamento falha (banco fora, por exemplo) | 3 novas tentativas (1 s, 2 s, 4 s), depois DLT no formato do kit | Unitário (`comum/tests/test_consumidor.py`) |
 | Evento fora do contrato ou com referência inexistente | Direto para a DLT, com o motivo; a fila segue | Etapa 1 (cidade inexistente) |
 | Mesma mensagem 5 vezes | Efeito uma vez só | Teste de integração 1 |
 | Escolhas simultâneas nas duas cópias + prazo vencendo | Um único `frete_selecionado` | Teste de integração 2 |
@@ -172,6 +172,7 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 | Rotina em segundo plano quebra | O supervisor registra e reinicia | Só no código (`comum/tarefas.py`) |
 | Mapa não carrega na tela | Origem, destino e última posição em texto | Só no código (`frontend/assets/rastreio.js`) |
 | Transportadora escolhida sem caminhão | Recusa e troca automática para a próxima cotação | Etapa 3 |
+| Cancelamento chega às transportadoras antes do `frete_selecionado` | A escala não agenda viagem; caminhão e motorista continuam livres | Teste de integração 4 |
 
 ## 10. Implantação
 
@@ -182,7 +183,7 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 1. a Infra criar os tópicos novos e registrar os consumidores novos ([eventos](03-eventos-e-integracoes.md), seção 4);
 2. o grupo de Banco aplicar as migrações de `services/*/migracoes/` (sem os seeds `9xx`), no lugar das tabelas do `01-init.sql`;
 3. trocar o build dos serviços no `docker-compose.yml` do kit para o nosso (contexto na raiz, por causa do pacote `comum`);
-4. usar a `JWT_SECRET_KEY` do `usuarios-service` e desligar `pedidos-falso` e `usuarios-falso`;
+4. apontar `AUTH_JWKS_URL` para o JWKS da Autenticação pelo gateway (`http://gateway:8080/.well-known/jwks.json`) e desligar `pedidos-falso` e `usuarios-falso`. Enquanto o kit não for atualizado, `JWT_ALGORITHM=HS256` com a `JWT_SECRET_KEY` do kit;
 5. combinar com a Infra o caminho das telas no gateway (`/logistica/` ou `/app/logistica`).
 
 ## 11. Testes e validação
@@ -191,8 +192,8 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 
 | Tipo | Onde | Quantidade | Resultado |
 |---|---|---|---|
-| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs) | `comum/tests`, `services/*/tests` | 78 | Todos passam |
-| Integração (contra Redpanda e PostgreSQL de verdade, conferindo banco e tópicos) | `testes_integracao/` | 4 | Todos passam (≈ 2 min 40 s) |
+| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs, token, retentativas e DLT) | `comum/tests`, `services/*/tests` | 97 | Todos passam |
+| Integração (contra Redpanda e PostgreSQL de verdade, conferindo banco e tópicos) | `testes_integracao/` | 5 | Todos passam em duas rodadas seguidas (≈ 2 min 43 s cada), com o token RS256 |
 | Carga (k6) | `testes_carga/leitura.js` | 1 cenário | Passou (seção 11.3) |
 
 ```bash
@@ -201,13 +202,15 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js
 ```
 
-### 11.2 Os 3 cenários distribuídos
+### 11.2 Os cenários distribuídos
 
 | Cenário | Como | Conferido |
 |---|---|---|
 | **Mensagem duplicada** | O mesmo `pedido_criado` (mesmo `eventId`) publicado 5 vezes | 5 cópias no tópico; 1 solicitação; 1 linha em `processed_events`; 4 contadas como duplicadas nas métricas; 1 `solicitacao_frete_criada` na outbox e no tópico; 3 cotações (e não 15) |
 | **Várias coisas ao mesmo tempo** | 6 escolhas simultâneas, alternando as duas cópias e os tipos de escolha, mais o relógio acelerado 100.000× no mesmo instante (o prazo de 12 h vence em menos de 1 s e a rotina das duas cópias também tenta escolher) | Respostas só 200 ou 409, no máximo um 200; 1 `frete_selecionado` na outbox e no tópico; 1 entrega |
 | **Uma cópia caindo** | Com o caminhão em trânsito, `docker compose stop logistica-1 transportadoras-1`; o relógio é acelerado pelo portal (que manda para a cópia que sobrou) até a entrega | Entrega concluída só com as cópias 2; sequência de rastreio 1..N sem buraco nem repetição no banco; a viagem publicou exatamente N eventos; todas as sequências estão no tópico; 1 `entrega_concluida` na outbox |
+
+| **Fora de ordem entre tópicos** | O `pedido_atualizado` com `CANCELADO` é publicado e processado antes; só depois chega um `frete_selecionado` do mesmo pedido | Nenhuma viagem agendada; o `frete_selecionado` foi processado (está em `processed_events`); a solicitação continua `CANCELADA` |
 
 Mais o **fluxo completo**: pedido → 3 cotações → comparação → escolha do comprador → viagem → `entrega_concluida`, com o mesmo `correlationId` do começo ao fim, notificações, pontualidade e os 4 documentos.
 
@@ -260,6 +263,7 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | 023 | Contingência com JSON Schema | D23 | Aceita |
 | 024 | Ambiente próprio, arquivos dentro das imagens | — | Aceita |
 | 025 | CNH mascarada na origem | D19 | Aceita |
+| 026 | Token do grupo de Autenticação | D25 | Aceita, depende da Autenticação e da Infra |
 
 ### ADR-001: Dois serviços, como no kit
 
@@ -345,6 +349,7 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 - **Contexto:** `pedido_criado` e `pedido_atualizado` são tópicos diferentes; não há ordem garantida entre eles.
 - **Decisão:** um cancelamento de pedido desconhecido é guardado em `pedido_cancelado`; o pedido que chega depois não abre solicitação.
 - **Consequências:** nenhum frete é contratado para pedido já cancelado.
+- **Complemento (depois da etapa 5):** o mesmo problema existia entre `pedido_atualizado` e `frete_selecionado` nas transportadoras: com o cancelamento chegando primeiro, a escala agendava a viagem e prendia caminhão e motorista. Agora a escala confere se a solicitação foi cancelada. O teste de integração 4 reproduz a ordem ruim; ele falhou antes da correção e passa depois.
 
 ### ADR-014: Transportadoras simuladas e real
 
@@ -417,6 +422,13 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 - **Decisão:** a CNH sai do serviço de transportadoras já mascarada; a logística nunca vê o número completo.
 - **Consequências:** o dado pessoal fica num lugar só; a transportadora vê a CNH completa só na tela da própria frota.
 
+### ADR-026: Token do grupo de Autenticação
+
+- **Contexto:** o kit usa HS256 com chave compartilhada, o que permite a qualquer serviço emitir tokens. O grupo de Autenticação definiu RS256 com JWKS e os claims `tenant_id` e `active_scope` (L16).
+- **Decisão:** validar o token RS256 com a chave pública do `kid` (JWKS com cache de 1 hora), com o algoritmo fixo na configuração. `BUYER`, `SUPPLIER` e `CARRIER` viram comprador, fornecedor e transportadora; o admin do módulo é quem tem a permissão `logistica:admin`; `TENANT_ADMIN` sozinho recebe 403. `JWT_ALGORITHM=HS256` volta ao formato do kit.
+- **Alternativas:** esperar o kit mudar (o login real não funcionaria); tratar `TENANT_ADMIN` como admin (o administrador de uma empresa veria as entregas de todas e mexeria no relógio).
+- **Consequências:** nenhum serviço consegue forjar token; o portal entra com o mesmo token dos outros grupos. A permissão `logistica:admin` ainda precisa ser confirmada pela Autenticação.
+
 ## 13. Limitações conhecidas
 
 | Limitação | Efeito | Possível evolução |
@@ -430,8 +442,8 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Carga de escrita não medida | O critério de escrita do kit (p95 ≤ 1000 ms) não foi verificado | Cenário k6 de escolha de frete |
 | Notificações por empresa, não por usuário | Todos da empresa veem as mesmas | Destinatário por usuário |
 | Login de demonstração com token de 8 h | Só desenvolvimento | Usar o `usuarios-service` |
-| Token só no formato do kit (HS256, `empresaId`, `perfil`) | Um token real da Autenticação (RS256, `tenant_id`, `active_scope`) seria recusado | Proposta D25, quando a Infra atualizar o kit |
-| Formato da DLT diferente do kit | O kit grava `originalEvent`, `error`, `stackTrace` e `failedAtAttempt`; nós gravamos `eventoOriginal`, `erro` e `tentativas`. Quem ler as duas DLTs encontra campos diferentes | Usar os nomes do kit em `comum/consumidor.py` |
+| Permissão `logistica:admin` é proposta nossa | Sem ela, ninguém da Autenticação real consegue ser admin do módulo (relógio, todas as entregas) | Confirmar com a Autenticação (ADR-026) |
+| Tela de login só de demonstração | O portal entra pelo `usuarios-falso`, não pelo login e pela troca de contexto da Autenticação | Usar o login da Autenticação no gateway |
 | Especificações ERS-LLM (ESP-LOG-001, ESP-TRP-001) não escritas | O QA ainda não tem a especificação no modelo dele | Escrever a partir deste relatório e das explicações |
 
 ## 14. Divergências em relação ao kit e ao planejado
@@ -448,7 +460,8 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Telas | Plano inicial: UX ou nós | Nós, sobre o mockup do UX | D11 |
 | Cache do relógio | Primeira versão: 2 s | Sem cache | ADR-009 |
 | Reserva de caminhão | Primeira versão: `FOR UPDATE` em lista | Gravação condicional | ADR-007 |
-| Conteúdo da DLT | Kit: `originalEvent`, `error`, `stackTrace`, `failedAtAttempt` | `eventoOriginal`, `erro`, `tentativas` | Não percebido na etapa 1; a corrigir (seção 13) |
+| Conteúdo da DLT | Kit: `originalEvent`, `error`, `stackTrace`, `failedAtAttempt` | Os mesmos, mais `originalTopic` | Corrigido depois da etapa 5 (a primeira versão usava `eventoOriginal`, `erro` e `tentativas`) |
+| Token | Kit: HS256, `empresaId`, `perfil` | RS256 da Autenticação; HS256 por configuração | ADR-026 |
 
 ## 15. Pendências com outros grupos
 
@@ -458,7 +471,7 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Infraestrutura | Tópicos novos, consumidores novos, correções do kit, caminho das telas no gateway |
 | Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
 | Fornecimento e Produtos | Listas de tipos de transporte e de unidades iguais nos dois lados; falta responder P-27 (o tipo chega pelo `pedido_criado`) e pedir a origem do fornecimento em cidade e UF e o peso por unidade |
-| Autenticação | Token RS256 com `tenant_id` e `active_scope` (D25) e como identificar o administrador da plataforma; cidade e UF da empresa, que o `empresa_cadastrada` não traz |
+| Autenticação | Confirmar a permissão `logistica:admin` (ADR-026); cidade e UF da empresa, que o `empresa_cadastrada` não traz |
 | Teste e Qualidade | Receber as especificações ERS-LLM |
 | Professor | P1 (posição simulada), P2 (escolha pelo comprador), P3 (tópicos novos), data da apresentação |
 
@@ -475,4 +488,4 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 | Versão | Data | Mudança |
 |---|---|---|
 | 1.0 | 10/11/2026 | Primeira versão, ao fim da etapa 5 (testes de integração e de carga) |
-| 1.1 | 10/11/2026 | Atualização do grupo de Fornecimento e Produtos: token da Autenticação (D25), formato da DLT do kit e pendências da seção 15 |
+| 1.1 | 10/11/2026 | Integração com as definições dos outros grupos: token RS256 da Autenticação (ADR-026), DLT no formato do kit, `fornecimentoId` aceito no `pedido_criado`, pendências da seção 15 |

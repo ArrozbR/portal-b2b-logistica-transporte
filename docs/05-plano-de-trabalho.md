@@ -47,13 +47,14 @@ Em aberto (D17). Como o código é gerado por IA, o papel de cada membro é **re
 
 Rodam sobre o **Redpanda e o PostgreSQL de verdade** (Docker), com as duas cópias de cada serviço no ar, seguindo o modelo de testes do repositório `ProcessoeArtefatoAED`: os serviços ficam no ar e o teste confere o resultado pelo banco e pelos tópicos.
 
-Implementados em `testes_integracao/` (`.venv/Scripts/python -m pytest testes_integracao -v`, com o ambiente no ar). Os três passam, junto com o fluxo completo, em duas rodadas seguidas (cerca de 2 min 40 s cada).
+Implementados em `testes_integracao/` (`.venv/Scripts/python -m pytest testes_integracao -v`, com o ambiente no ar). Os três passam, junto com o fluxo completo, em duas rodadas seguidas (cerca de 2 min 40 s cada). Depois do encaixe com os outros grupos, com o cenário 4 e a limpeza entre testes, os 5 passam em duas rodadas seguidas (cerca de 2 min 43 s cada).
 
 | Teste | Como | Passa se | Situação |
 |---|---|---|---|
 | **Mensagem duplicada** | Publicar o mesmo `pedido_criado` (mesmo `eventId`) 5 vezes | Existe exatamente **1** solicitação no banco e **1** `solicitacao_frete_criada` no tópico | ✅ |
 | **Duas coisas ao mesmo tempo** | Disparar no mesmo instante a escolha do comprador, o botão "automático" e o vencimento do prazo, com `app1` e `app2` no ar | O tópico tem exatamente **1** `frete_selecionado` e a solicitação tem **1** cotação escolhida | ✅ |
 | **Uma cópia caindo** | Derrubar `app1-logistica` e `app1-transportadoras` no meio da viagem | O caminhão continua andando pela `app2`, a entrega é concluída, e a sequência de rastreio não tem buraco nem repetição | ✅ |
+| **Fora de ordem entre tópicos** (acrescentado depois) | Cancelamento chegando às transportadoras antes do `frete_selecionado` | Nenhuma viagem agendada | ✅ ([explicação 06](explicacoes/06-encaixe-com-outros-grupos.md)) |
 
 ### 4.2 Demais testes
 

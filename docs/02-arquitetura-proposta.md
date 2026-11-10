@@ -369,7 +369,7 @@ A comparação precisa da pontualidade de cada transportadora, que pertence ao `
 
 ## 10. API REST
 
-Todas as rotas exigem JWT. Listagens têm `?page=1&size=10` (`size > 100` → 422). Erros em RFC 7807.
+Todas as rotas exigem JWT: o token RS256 do grupo de Autenticação, validado pelo JWKS (D25). Listagens têm `?page=1&size=10` (`size > 100` → 422). Erros em RFC 7807.
 
 ### 10.1 `logistica-service`
 
@@ -425,7 +425,7 @@ Os pontos que a disciplina deve cobrar. Cada um precisa de um teste (plano, seç
 | Tarefas com hora marcada em duas cópias | Prazos e passos da viagem | `FOR UPDATE SKIP LOCKED` nas linhas vencidas (D14) |
 | Relógio igual em todas as cópias | Relógio do módulo | Estado no banco de cada serviço, propagado por evento com `versao` (seção 7) |
 | Tela ligada a outra cópia | Rastreio | A tela lê do banco (seção 6.4) |
-| Falha permanente | Todos os consumidores | 3 tentativas (1 s, 2 s, 4 s) e depois `logistica.dlt` ou `transportadoras.dlt` |
+| Falha permanente | Todos os consumidores | 3 tentativas (1 s, 2 s, 4 s) e depois `logistica.dlt` ou `transportadoras.dlt`, com o payload do kit (`originalEvent`, `error`, `stackTrace`, `failedAtAttempt`) mais `originalTopic` |
 
 ### 11.1 Por que o frete não é escolhido duas vezes
 

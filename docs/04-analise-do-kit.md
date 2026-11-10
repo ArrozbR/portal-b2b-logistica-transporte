@@ -38,7 +38,7 @@ O grupo de Fornecimento e Produtos analisou o kit no [Relatório Técnico](https
 | L13 | O front de logística do kit é um formulário genérico ("ID da Solicitação", "Status"), e o gateway o serve em `/logistica/`, enquanto o guia fala em `/app/logistica` | `frontends/apps/logistica/index.html`, `gateway/common_routes.conf` | Não atende aos mockups do UX | Combinar com UX (D11) e confirmar o caminho com a Infra |
 | L14 | Janela de 10 s não combina com cotação manual: o mockup do UX tem a transportadora preenchendo valor, prazo e validade, o que leva minutos | Guia (seção 8.1) e mockup `portal_b2b_06_fretes.png` | Cotação manual nunca entraria na janela | Janela configurável (D3, D4) |
 | L15 | A auditoria da seleção registra o usuário como `"system"` | `selecionar_frete` | Perde quem escolheu quando a seleção é manual | Usar o `sub` do token quando houver |
-| L16 | O kit valida o token com HS256 e chave compartilhada e lê `empresaId` e `perfil` (em minúsculas). O grupo de Autenticação definiu outro token: RS256, chaves públicas no `/.well-known/jwks.json` e claims `tenant_id` e `active_scope` (`BUYER`, `SUPPLIER`, `CARRIER`, `TENANT_ADMIN`). Fonte: issue #2 do repositório de Fornecimento e Produtos (09/11/2026), que já mudou para RS256 | `services/common/auth.py` do kit | Seguimos o kit, então um token real da Autenticação seria recusado com 401 | Proposta D25; depende de a Infra atualizar o kit |
+| L16 | O kit valida o token com HS256 e chave compartilhada e lê `empresaId` e `perfil` (em minúsculas). O grupo de Autenticação definiu outro token: RS256, chaves públicas no `/.well-known/jwks.json` e claims `tenant_id` e `active_scope` (`BUYER`, `SUPPLIER`, `CARRIER`, `TENANT_ADMIN`). Fonte: issue #2 do repositório de Fornecimento e Produtos (09/11/2026), que já mudou para RS256 | `services/common/auth.py` do kit | Seguindo o kit, um token real da Autenticação seria recusado com 401 | Seguir a Autenticação (D25), com o formato do kit por configuração |
 
 ## 3. Conclusão
 
@@ -83,4 +83,10 @@ Na etapa 3:
 |---|---|---|
 | L13 | Telas próprias no layout do mockup do UX (lista de entregas e rastreamento com mapa), em vez do formulário genérico do kit; servidas pelo contêiner `portal`, que também reparte as chamadas entre as cópias | `frontend/`, `infra/portal/` |
 
-Fica pendente: L12 (depende do grupo de Pedidos) e L16 (depende da Infra e da Autenticação, D25). O caminho do front no gateway do kit (`/logistica/` ou `/app/logistica`) ainda precisa ser confirmado com a Infraestrutura quando as telas forem para o kit.
+Depois da etapa 5:
+
+| Item | Como ficou | Onde |
+|---|---|---|
+| L16 | Token RS256 da Autenticação validado pelo JWKS, com a tradução de `active_scope` para os perfis do módulo; `JWT_ALGORITHM=HS256` volta ao formato do kit (D25) | `comum/comum/auth.py` |
+
+Fica pendente: L12 (depende do grupo de Pedidos). O caminho do front no gateway do kit (`/logistica/` ou `/app/logistica`) ainda precisa ser confirmado com a Infraestrutura quando as telas forem para o kit.
