@@ -37,6 +37,7 @@
         <section class="cartao mapa-cartao" aria-label="Mapa da entrega">
           <div id="mapa"></div>
           <div class="selo-simulado">Dados simulados · sem GPS real</div>
+          <button type="button" class="botao botao-mapa" id="atualizar-posicao" hidden>${icone('atualizar')} <span>Atualizar localização</span></button>
           <div class="legenda" id="legenda">
             <span><i></i>Rota percorrida</span><span><i class="restante"></i>Rota restante</span>
             <span><i class="ponto"></i>Posição atual</span><span><i class="destino"></i>Destino</span>
@@ -275,7 +276,35 @@
   }
 
   // ------------------------------------------------------------------ ciclo de atualização
-  async function carregar() {
+  // A tela já atualiza sozinha a cada 5 s. O botão força uma atualização na hora e centraliza o
+  // caminhão, com dois limites para não sobrecarregar o serviço: uma consulta por vez
+  // (`emAndamento`) e uma espera de ESPERA_BOTAO_S segundos entre um clique e o próximo.
+  const ESPERA_BOTAO_S = 15;
+  let emAndamento = null;
+
+  function carregar() {
+    if (!emAndamento) emAndamento = buscar().finally(() => { emAndamento = null; });
+    return emAndamento;
+  }
+
+  async function atualizarAgora() {
+    const botao = document.getElementById('atualizar-posicao');
+    const texto = botao.querySelector('span');
+    botao.disabled = true;
+    texto.textContent = 'Atualizando…';
+    await carregar();
+    if (mapa.leaflet && mapa.caminhao) mapa.leaflet.panTo(mapa.caminhao.getLatLng(), { animate: true });
+    let restante = ESPERA_BOTAO_S;
+    const contar = () => {
+      if (restante <= 0) { botao.disabled = false; texto.textContent = 'Atualizar localização'; return; }
+      texto.textContent = `Atualizado · de novo em ${restante} s`;
+      restante -= 1;
+      setTimeout(contar, 1000);
+    };
+    contar();
+  }
+
+  async function buscar() {
     try {
       const [e, r] = await Promise.all([
         api(`/api/v1/logistica/entregas/${encodeURIComponent(entregaId)}`),
@@ -291,6 +320,8 @@
         && !['CANCELADA', 'RECUSADA'].includes(e.status);
       document.getElementById('reportar').hidden = !podeReportar;
       try { atualizarMapa(e, r); } catch (erroMapa) { console.error(erroMapa); mapaEmTexto(e, r); }
+      // O botão só faz sentido com o caminhão na estrada.
+      document.getElementById('atualizar-posicao').hidden = !['AGUARDANDO_COLETA', 'EM_TRANSITO'].includes(e.status);
     } catch (erro) {
       document.getElementById('mensagem').innerHTML = erroHtml(erro);
     }
@@ -307,6 +338,7 @@
       }
       esqueleto();
       document.getElementById('reportar').addEventListener('click', reportarOcorrencia);
+      document.getElementById('atualizar-posicao').addEventListener('click', atualizarAgora);
       carregar();
       setInterval(carregar, 5000);
     },

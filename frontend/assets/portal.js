@@ -9,6 +9,7 @@
  */
 const Portal = (() => {
   const ICONES = {
+    atualizar: '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>',
     lapis: '<path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5Z"/><path d="m15 5 4 4"/>',
     folha: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
     caminhao: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
@@ -301,11 +302,26 @@ const Portal = (() => {
     painel.innerHTML = '<div class="vazio">Carregando…</div>';
     try {
       const r = await api('/api/v1/logistica/notificacoes?size=15');
-      painel.innerHTML = `<h3>Notificações</h3>${r.items.length ? r.items.map((n) => `
+      painel.innerHTML = `<div class="cabecalho-painel"><h3>Notificações</h3>${r.naoLidas
+        ? `<button type="button" class="botao fantasma pequeno" id="marcar-todas">${icone('check')} Marcar todas como lidas</button>` : ''}</div>
+        ${r.items.length ? r.items.map((n) => `
         <button type="button" class="notificacao ${n.lida ? '' : 'nao-lida'}" data-id="${escapar(n.id)}" data-pedido="${escapar(n.pedido_id || '')}">
           <strong>${escapar(n.titulo)}</strong><p>${escapar(n.mensagem)}</p><time>${formato.completa(n.criada_em)}</time>
         </button>`).join('') : '<div class="vazio">Nenhuma notificação.</div>'}`;
       painel.querySelectorAll('.notificacao').forEach((botao) => botao.addEventListener('click', () => abrirNotificacao(botao)));
+      const todas = document.getElementById('marcar-todas');
+      if (todas) {
+        todas.addEventListener('click', async () => {
+          todas.disabled = true;
+          try {
+            const feito = await api('/api/v1/logistica/notificacoes/marcar-todas-lidas', { metodo: 'POST' });
+            painel.querySelectorAll('.notificacao.nao-lida').forEach((n) => n.classList.remove('nao-lida'));
+            todas.remove();
+            atualizarSino();
+            avisoRapido(feito.marcadas === 1 ? '1 notificação marcada como lida.' : `${feito.marcadas} notificações marcadas como lidas.`);
+          } catch (erro) { todas.disabled = false; avisoRapido(`Não foi possível marcar: ${erro.message}`, true); }
+        });
+      }
     } catch (erro) { painel.innerHTML = erroHtml(erro); }
   }
 

@@ -104,6 +104,8 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 }
 .ancora { position: relative; }
 .painel-flutuante h3 { margin: 6px 8px 8px; font-size: 14px; }
+.cabecalho-painel { display: flex; align-items: center; justify-content: space-between; gap: 8px; position: sticky; top: -8px; background: var(--cartao); z-index: 1; padding-top: 2px; }
+.cabecalho-painel .botao { font-size: 12px; padding: 4px 8px; color: var(--verde-texto); }
 .painel-flutuante .vazio { padding: 16px 8px; color: var(--texto-suave); }
 .notificacao { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 10px 8px; border-radius: 10px; }
 .notificacao:hover { background: var(--fundo); }
@@ -231,18 +233,20 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 
 .linha-tempo { list-style: none; margin: 0; padding: 4px 20px 18px; }
 .linha-tempo li { display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; position: relative; padding-bottom: 20px; }
-.linha-tempo li::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 2px; background: var(--verde); opacity: .55; }
+/* A linha é centralizada pelo meio do círculo (left 14px + translate), e não por 13px fixos:
+   com zoom de 125% no Windows, 13px e o círculo arredondavam para pixels diferentes. */
+.linha-tempo li::before { content: ""; position: absolute; left: 14px; top: 32px; bottom: 4px; width: 2px; transform: translateX(-50%); background: var(--verde); opacity: .55; }
 .linha-tempo li:last-child { padding-bottom: 0; }
 .linha-tempo li:last-child::before { display: none; }
-.linha-tempo li.pendente::before { background: none; border-left: 2px dashed #d1d5db; opacity: 1; }
-.linha-tempo .marca { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--verde); color: #fff; }
-.linha-tempo .marca svg { width: 16px; height: 16px; }
-.linha-tempo .atual .marca { background: var(--verde-claro); color: var(--verde-escuro); outline: 3px solid var(--verde-fundo); }
+.linha-tempo li.pendente::before { background: none; width: 0; border-left: 2px dashed #d1d5db; opacity: 1; }
+.linha-tempo .marca { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--verde); color: #fff; }
+.linha-tempo .marca svg { width: 16px; height: 16px; display: block; }
+.linha-tempo .atual .marca { background: var(--verde-claro); color: var(--verde-escuro); box-shadow: 0 0 0 3px var(--verde-fundo); }
 .linha-tempo .alerta .marca { background: var(--ambar); }
 .linha-tempo .pendente .marca { background: #fff; border: 2px solid #d1d5db; color: #d1d5db; }
-.linha-tempo strong { display: block; margin-bottom: 2px; }
+.linha-tempo strong { display: block; min-height: 28px; line-height: 1.3; padding-top: 4px; }  /* título na altura do centro do ícone */
 .linha-tempo p { margin: 0; color: var(--texto-suave); font-size: 13px; line-height: 1.4; }
-.linha-tempo time { text-align: right; color: var(--texto-suave); font-size: 12px; line-height: 1.5; white-space: nowrap; }
+.linha-tempo time { text-align: right; color: var(--texto-suave); font-size: 12px; line-height: 1.5; white-space: nowrap; padding-top: 4px; }
 .linha-tempo .pendente strong, .linha-tempo .pendente p, .linha-tempo .pendente time { color: #9ca3af; }
 
 /* ------------------------------------------------------------ cartões de detalhe */
@@ -417,3 +421,5 @@ svg.icone { width: 18px; height: 18px; flex: none; }
   .usuario small { display: none; }
   .cabecalho h1 { font-size: 24px; }
 }
+.botao-mapa { position: absolute; right: 14px; bottom: 30px; z-index: 500; box-shadow: var(--sombra); background: rgba(255, 255, 255, .97); font-size: 13px; }
+.botao-mapa:disabled { opacity: .85; color: var(--texto-suave); }

@@ -440,6 +440,16 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
             """, [*parametros, pagina.size, pagina.offset])
         return {**resposta_paginada([linha_para_json(l) for l in linhas], pagina, total), "naoLidas": nao_lidas}
 
+    @rotas.post("/notificacoes/marcar-todas-lidas", tags=["notificações"],
+                summary="Marca como lidas todas as notificações do usuário")
+    async def marcar_todas_lidas(usuario: Usuario = Depends(exigir_perfis("comprador", "fornecedor"))):
+        async with db.transacao() as conn:
+            resultado = await conn.execute("""
+                UPDATE logistica.notificacao SET lida = TRUE
+                 WHERE empresa_id = %s AND papel = %s AND NOT lida
+            """, (usuario.empresa_id, usuario.perfil))
+        return {"marcadas": resultado.rowcount, "naoLidas": 0}
+
     @rotas.patch("/notificacoes/{notificacao_id}", tags=["notificações"], summary="Marca como lida ou não lida")
     async def marcar_notificacao(notificacao_id: str, corpo: MarcacaoDeLeitura,
                                  usuario: Usuario = Depends(exigir_perfis("comprador", "fornecedor"))):
