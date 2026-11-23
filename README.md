@@ -88,7 +88,8 @@ docker compose up -d --build       # sobe tudo
 docker compose ps                  # aguarde tudo ficar healthy/running
 
 # cria um pedido de teste: entre como Administrador e use o botão "Novo pedido de teste"
-# na tela de solicitações; ou, pelo terminal (Sorriso/MT → Santos/SP, 24 t de soja):
+# na tela de solicitações (marque "Pedido de leilão" para o pedido nascer sem comprador
+# e o frete abrir só no fechamento); ou, pelo terminal (Sorriso/MT → Santos/SP, 24 t de soja):
 docker compose exec logistica-1 python -m comum.ferramentas.publicar_pedido_falso
 
 docker compose logs -f logistica-1 transportadoras-1

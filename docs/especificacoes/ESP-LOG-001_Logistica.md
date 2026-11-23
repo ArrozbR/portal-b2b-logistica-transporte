@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-LOG-001 |
-| Versão | 1.2 |
+| Versão | 1.4 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `logistica-service`: solicitação de frete, escolha do frete, entrega e rastreio. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -156,7 +156,7 @@ Os nomes abaixo são os da resposta da API (§7.2).
 | Atributo | Tipo | Obrigatório | Restrições / origem |
 |---|---|---|---|
 | id | string | Sim | UUID4 gerado pelo serviço. |
-| pedido_id | string | Sim | `pedidoId` do evento; único. |
+| pedido_id | string | Sim | `pedidoId` do evento; único junto com `rodada`. |
 | produto_id, produto_nome | string | Sim | Do evento. |
 | valor_carga | valor monetário | Sim | `valorTotal` do evento; ≥ 0. |
 | comprador_id, fornecedor_id | string | Sim | Do evento. |
@@ -174,6 +174,7 @@ Os nomes abaixo são os da resposta da API (§7.2).
 | escolhida_por | string ou `null` | Não | `sub` de quem escolheu; `null` quando foi a rotina de prazos ou a troca de transportadora. |
 | escolhida_em | instante ou `null` | Não | Hora do módulo na escolha. |
 | status | enum | Sim | §6.2. Inicial `"ABERTA"`. |
+| rodada | inteiro | Sim | 1 na primeira solicitação do pedido; +1 em cada nova cotação depois do frete indisponível (RN-36). Único por (`pedido_id`, `rodada`). |
 
 Internos (não aparecem na API): `rodada_ate` (hora real da abertura + 10 s), `correlation_id` (do `pedido_criado`).
 
@@ -199,7 +200,7 @@ Internos (não aparecem na API): `rodada_ate` (hora real da abertura + 10 s), `c
 |---|---|---|---|
 | id | string | Sim | UUID4 gerado na escolha. |
 | pedido_id, solicitacao_id, cotacao_id | string | Sim | Da escolha. |
-| tentativa | inteiro | Sim | 1 na primeira escolha; +1 a cada troca de transportadora. Único por pedido. |
+| tentativa | inteiro | Sim | 1 na primeira escolha da solicitação; +1 a cada troca de transportadora. Único por solicitação: recomeça em 1 na rodada seguinte (RN-36). |
 | status | enum | Sim | §6.2. Inicial `"AGUARDANDO_ALOCACAO"`. |
 | transportadora_id | string | Sim | Da cotação. |
 | transportadora_nome | string ou `null` | Não | Da cotação; atualizado por `VIAGEM_ALOCADA`. |
@@ -256,6 +257,7 @@ Internos: `empresa_id` e `papel` (`"comprador"` ou `"fornecedor"`), o destinatá
 | Tabela | Uso |
 |---|---|
 | `pedido_cancelado` | `pedido_id` de cancelamento que chegou antes do pedido (RN-06). |
+| `pedido_aguardando` | Pedido de leilão à espera do fechamento: `pedido` (payload do `pedido_criado`), `fechamento` (campos do `pedido_atualizado` de fechamento) e `correlation_id` do `pedido_criado` (RN-35). A linha some quando a solicitação abre ou o pedido é cancelado. |
 | `idempotency_keys` | Chave de idempotência e resposta memorizada da escolha (RN-15). |
 | `processed_events` | `eventId` já consumidos (RN-30). |
 | `outbox` | Eventos a publicar (§5.1). |
@@ -273,13 +275,13 @@ Internos: `empresa_id` e `papel` (`"comprador"` ou `"fornecedor"`), o destinatá
 | COTADA | API-05 com `cotacaoId` | `agora ≤ prazo_decisao_em` | SELECIONADA (`ESCOLHA_COMPRADOR`) |
 | COTADA | API-05 com `modo: AUTOMATICO` | — | SELECIONADA (`AUTOMATICO_MENOR_PRECO`) |
 | COTADA | Rotina de prazos | `agora ≥ prazo_decisao_em` | SELECIONADA (`AUTOMATICO_MENOR_PRECO`) |
-| SEM_COTACAO | Rotina de prazos | `agora ≥ prazo_decisao_em` | INDISPONIVEL |
+| SEM_COTACAO | Rotina de prazos | `agora ≥ prazo_decisao_em` | INDISPONIVEL, e a rodada seguinte abre ABERTA (RN-36) |
 | ABERTA, COTADA, SEM_COTACAO | `pedido_atualizado` CANCELADO | — | CANCELADA |
 | SELECIONADA | `rastreio_atualizado` VIAGEM_RECUSADA | Há outra cotação válida | SELECIONADA (outra cotação, `AUTOMATICO_MENOR_PRECO`) |
-| SELECIONADA | `rastreio_atualizado` VIAGEM_RECUSADA | Não há outra cotação válida | INDISPONIVEL |
+| SELECIONADA | `rastreio_atualizado` VIAGEM_RECUSADA | Não há outra cotação válida | INDISPONIVEL, e a rodada seguinte abre ABERTA (RN-36) |
 | SELECIONADA, INDISPONIVEL, CANCELADA | `pedido_atualizado` CANCELADO | — | (não muda) |
 
-INDISPONIVEL e CANCELADA são finais. SELECIONADA só muda por recusa da viagem.
+INDISPONIVEL e CANCELADA são finais para a solicitação; o pedido continua numa nova solicitação, a rodada seguinte (RN-36). SELECIONADA só muda por recusa da viagem.
 
 **Entrega**
 
@@ -375,7 +377,7 @@ Texto no formato Prometheus, com os contadores `http_requests_total{service,meth
 
 #### API-04 — Listar solicitações
 
-Parâmetros: `status` (opcional, um dos 6 status da solicitação), `pedido_id` (opcional, 1 a 64 caracteres; igualdade exata, devolve no máximo 1 item, RN-05), `page`, `size`. Os filtros se somam (E). Só as visíveis para o usuário, ordenadas por `aberta_em` decrescente. Cada item tem os campos da API-05, sem `cotacoes`.
+Parâmetros: `status` (opcional, um dos 6 status da solicitação), `pedido_id` (opcional, 1 a 64 caracteres; igualdade exata; um item por rodada do pedido, RN-05 e RN-36), `page`, `size`. Os filtros se somam (E). Só as visíveis para o usuário, ordenadas por `aberta_em` decrescente. Cada item tem os campos da API-05, sem `cotacoes`.
 
 ```json
 {
@@ -725,16 +727,16 @@ Envelope de toda mensagem consumida: objeto JSON com `eventId`, `eventType`, `ti
 |---|---|---|---|---|
 | `pedido_criado` | Pedidos | `pedidoId` | RF-01 | DLT `logistica.dlt` (RN-30) |
 | `cotacao_recebida` | `transportadoras-service` | `solicitacaoFreteId` | RF-02 | DLT |
-| `pedido_atualizado` | Pedidos | `pedidoId` | RF-10 | DLT |
+| `pedido_atualizado` | Pedidos | `pedidoId` | RF-10, RF-20 | DLT |
 | `rastreio_atualizado` | `transportadoras-service` | `pedidoId` | RF-11, RF-12 | DLT |
 
 Campos do `payload`:
 
 | Tópico | Obrigatórios | Opcionais |
 |---|---|---|
-| `pedido_criado` | `pedidoId`, `compradorId`, `fornecedorId`, `produtoId`, `produtoNome` (strings não vazias); `quantidade` (> 0); `unidade` (`KG`, `TON`, `UN`, `CX`, `L`); `pesoKg` (> 0); `tipoTransporte` (`GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO`); `valorTotal` (≥ 0); `origem` e `destino` (`{"cidade": string não vazia, "uf": "^[A-Z]{2}$"}`) | `negociacaoId`, `fornecimentoId` (não usado), `dataEntregaDesejada` (data), `status` |
+| `pedido_criado` | `pedidoId`, `fornecedorId`, `produtoId`, `produtoNome` (strings não vazias); `quantidade` (> 0); `unidade` (`KG`, `TON`, `UN`, `CX`, `L`); `pesoKg` (> 0); `tipoTransporte` (`GRANEL`, `REFRIGERADO`, `CARGA_SECA`, `PERIGOSO`); `valorTotal` (≥ 0); `origem` (`{"cidade": string não vazia, "uf": "^[A-Z]{2}$"}`) | `compradorId` (string não vazia ou `null`) e `destino` (local, como `origem`, ou `null`): nulos ou ausentes no pedido de leilão (RN-35); `negociacaoId`, `fornecimentoId` (não usado), `dataEntregaDesejada` (data ou `null`), `status` |
 | `cotacao_recebida` | `cotacaoId`, `solicitacaoFreteId`, `transportadoraId` (strings não vazias); `preco` (> 0); `prazoDias` (inteiro ≥ 1) | `transportadoraNome`, `dataEntregaPrevista`, `validaAte`, `origemCotacao` (`SIMULADA`, `DIGITADA`), `observacoes` (até 500 caracteres ou `null`) |
-| `pedido_atualizado` | `pedidoId`; e `novoStatus` ou `status` (string não vazia) | `statusAnterior` |
+| `pedido_atualizado` | `pedidoId`; e `novoStatus` ou `status` (string não vazia) | `statusAnterior`; campos do fechamento do leilão (RN-35): `compradorId` (string não vazia ou `null`), `destino` (local ou `null`), `quantidade` e `pesoKg` (> 0 ou `null`), `valorTotal` (≥ 0 ou `null`), `dataEntregaDesejada` |
 | `rastreio_atualizado` | `pedidoId`, `entregaId`, `transportadoraId`, `sequencia` (inteiro ≥ 1), `tipo`, `descricao`, `ocorridoEm` | Conforme o `tipo` (tabela abaixo) |
 
 Campos de `rastreio_atualizado` obrigatórios por `tipo`:
@@ -829,6 +831,7 @@ Exemplo `solicitacao_frete_criada` (P-1):
     "distanciaKm": 2091.1,
     "dataColetaPrevista": "2026-11-11",
     "prazoDecisaoEm": "2026-11-11T00:00:00.000Z",
+    "rodada": 1,
     "status": "ABERTA"
   }
 }
@@ -925,7 +928,7 @@ O desempenho das transportadoras acumula e só zera com `docker compose down -v`
 ### RF-01 — Abrir a solicitação de frete
 
 - **Prioridade:** Must
-- **Enunciado (EARS):** Quando uma mensagem válida de `pedido_criado` for recebida para um `pedidoId` sem solicitação e sem cancelamento registrado, o serviço deve criar a solicitação com status `ABERTA` e publicar `solicitacao_frete_criada`.
+- **Enunciado (EARS):** Quando uma mensagem válida de `pedido_criado` com `compradorId` e `destino` for recebida para um `pedidoId` sem solicitação e sem cancelamento registrado, o serviço deve criar a solicitação com status `ABERTA` e publicar `solicitacao_frete_criada`. Sem `compradorId` ou sem `destino`, vale o RF-20.
 - **Regras aplicáveis:** RN-01 a RN-06, RN-30
 - **Interface:** tópico `pedido_criado`, tópico `solicitacao_frete_criada`, `logistica.dlt`
 
@@ -960,7 +963,7 @@ Cenário: Cidade fora da tabela vai para a DLT
 
 # CA-05
 Cenário: Payload fora do contrato vai para a DLT
-  Quando P-1 é publicado com pedidoId "PED-1010" e qualquer uma destas mudanças: pesoKg 0; tipoTransporte "VIVO"; origem {"cidade": "Sorriso", "uf": "mt"}; sem o campo destino; pedidoId 1010 (número)
+  Quando P-1 é publicado com pedidoId "PED-1010" e qualquer uma destas mudanças: pesoKg 0; tipoTransporte "VIVO"; origem {"cidade": "Sorriso", "uf": "mt"}; destino {"cidade": "Santos"} (sem uf); sem o campo origem; compradorId ""; pedidoId 1010 (número)
   Então nenhuma solicitação é criada para o pedido
   E há uma mensagem em "logistica.dlt" com failedAtAttempt 1 e error começando com "Payload de pedido_criado fora do contrato:"
 
@@ -1706,21 +1709,95 @@ Cenário: Documento recusado
   Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
 ```
 
+### RF-20 — Pedido de leilão: esperar o fechamento
+
+- **Prioridade:** Must
+- **Enunciado (EARS):** Quando um `pedido_criado` válido chegar sem `compradorId` ou sem `destino`, o serviço deve guardá-lo sem abrir solicitação. Quando um `pedido_atualizado` que não seja `CANCELADO` trouxer `compradorId` ou `destino` para um pedido sem solicitação nem cancelamento, o serviço deve guardar esses campos e, assim que o pedido tiver os dois, abrir a solicitação como no RF-01, com os dados do fechamento por cima dos do pedido. Os dois eventos podem chegar em qualquer ordem.
+- **Regras aplicáveis:** RN-01, RN-05, RN-06, RN-35
+- **Interface:** tópicos `pedido_criado`, `pedido_atualizado`, `solicitacao_frete_criada`
+
+P-L é P-1 com `pedidoId` `"PED-1020"`, `compradorId` `null` e `destino` `null`. F-L é o `pedido_atualizado` `{"pedidoId": "PED-1020", "statusAnterior": "CRIADO", "status": "AGUARDANDO_FRETE", "compradorId": "emp-comprador-1", "destino": {"cidade": "Santos", "uf": "SP"}, "valorTotal": 195000.0}` (status do grupo de Pedidos, Q-13; o serviço aceita qualquer status que não seja `CANCELADO`).
+
+```gherkin
+# CA-83
+Cenário: Leilão abre o frete só no fechamento
+  Quando P-L é publicado
+  Então em até 5 s não há solicitação com pedido_id "PED-1020", nenhuma mensagem em "solicitacao_frete_criada" para ele e nenhuma em "logistica.dlt"
+  E a tabela pedido_aguardando tem uma linha para "PED-1020"
+  Quando F-L é publicado
+  Então em até 5 s existe a solicitação de "PED-1020", com status "ABERTA", comprador_id "emp-comprador-1", destino_cidade "Santos", distancia_km 2091.1 e valor_carga 195000.0 (o valor do fechamento)
+  E aberta_em e prazo_decisao_em contam do consumo de F-L (RN-03, RN-04)
+  E a mensagem em "solicitacao_frete_criada" tem o correlationId do pedido_criado de P-L e compradorId "emp-comprador-1"
+  E pedido_aguardando não tem mais a linha de "PED-1020"
+
+# CA-84
+Cenário: Fechamento que chega antes do pedido
+  Quando F-L é publicado com pedidoId "PED-1021" e só depois P-L com pedidoId "PED-1021"
+  Então depois de F-L não há solicitação de "PED-1021"
+  E depois de P-L a solicitação abre com comprador_id "emp-comprador-1" e valor_carga 195000.0 (o compradorId null de P-L não apaga o do fechamento)
+  E a mensagem em "solicitacao_frete_criada" tem o correlationId do pedido_criado
+
+# CA-85
+Cenário: Leilão cancelado antes de fechar
+  Dado P-L publicado com pedidoId "PED-1022"
+  Quando pedido_atualizado {"pedidoId": "PED-1022", "novoStatus": "CANCELADO"} e depois F-L com pedidoId "PED-1022" são publicados
+  Então nenhuma solicitação é criada para "PED-1022" e pedido_aguardando não tem linha dele
+
+# CA-86
+Cenário: Fechamento sem efeito ou inválido
+  Dado S-1 aberta
+  Quando F-L é publicado com pedidoId "PED-1001"
+  Então S-1 continua com comprador_id "emp-comprador-1" e valor_carga 192000.0, sem nova mensagem em "solicitacao_frete_criada" nem em "logistica.dlt"
+  Quando um pedido_atualizado {"pedidoId": "PED-1023", "novoStatus": "EM_SEPARACAO"} (sem comprador nem destino) é publicado
+  Então nada é gravado e nada vai para "logistica.dlt"
+  Quando F-L é publicado com pedidoId "PED-1024" e destino {"cidade": "Gotham", "uf": "SP"}
+  Então há uma mensagem em "logistica.dlt" com failedAtAttempt 1 e error começando com "Cidade de destino desconhecida:"
+  Quando P-L é publicado com pedidoId "PED-1025" e compradorId "emp-comprador-1" (só falta o destino)
+  Então não há solicitação de "PED-1025" até chegar um fechamento com destino
+```
+
+### RF-21 — Nova rodada de cotação depois do frete indisponível
+
+- **Prioridade:** Must
+- **Enunciado (EARS):** Quando o serviço publicar `frete_indisponivel` para uma solicitação (RF-04 ou RF-12), ele deve, na mesma transação, abrir outra solicitação para o mesmo pedido, com `rodada` + 1 e a mesma carga, e publicar `solicitacao_frete_criada`.
+- **Regras aplicáveis:** RN-11, RN-24, RN-36
+- **Interface:** rotina de prazos, `rastreio_atualizado`, `frete_indisponivel`, `solicitacao_frete_criada`, API-04, API-11
+
+```gherkin
+# CA-87
+Cenário: Sem cotação no prazo, abre a rodada 2
+  Dado o cenário do CA-15 (S-2 SEM_COTACAO e o relógio adiantado 12 h)
+  Então S-2 tem status "INDISPONIVEL" e rodada 1
+  E existe outra solicitação de "PED-1002" com rodada 2, status "ABERTA" (ou "SEM_COTACAO", depois de 10 s), comprador_id, tipo_carga, peso_kg, origem, destino e valor_carga iguais aos de S-2, e aberta_em igual à hora do módulo do frete_indisponivel
+  E "solicitacao_frete_criada" tem 2 mensagens de "PED-1002", com rodada 1 e 2 e o mesmo correlationId do pedido_criado de P-2
+  E a API-04 de U-COMP com pedido_id=PED-1002 devolve total 2, a rodada 2 primeiro
+  E U-COMP e U-FORN têm a notificação "FRETE_INDISPONIVEL", com "nova cotação" na mensagem
+  Quando pedido_atualizado {"pedidoId": "PED-1002", "status": "CANCELADO"} é publicado
+  Então a rodada 2 fica "CANCELADA" e nenhuma rodada 3 abre depois de U-ADM avançar o relógio 12 h
+
+# CA-88
+Cenário: Nenhuma transportadora com frota, abre a rodada seguinte
+  Dado o cenário do CA-52 (a única cotação válida de S-4 teve a viagem recusada)
+  Então S-4 tem status "INDISPONIVEL" e a rodada 2 de "PED-1004" está "ABERTA"
+  E a primeira entrega da rodada 2, quando o frete for escolhido, tem tentativa 1
+  E a API-11 de "PED-1004" continua devolvendo a entrega "RECUSADA" da rodada 1 até a rodada 2 ter entrega
+```
+
 ## 9. Regras de negócio
 
 | ID | Regra | Exemplo concreto |
 |---|---|---|
-| RN-01 | Origem e destino são procurados na tabela de 35 cidades (Apêndice A) pelo nome, sem diferenciar maiúsculas, acentos e espaços repetidos, e pela UF (exata, maiúscula, garantida pelo contrato). A solicitação grava o nome e a UF da tabela. Origem fora da tabela → DLT com `error` `"Cidade de origem desconhecida: <origem recebida>"`; depois, o mesmo para o destino. | `"  sao   paulo "`/`SP` → São Paulo. `Atlântida`/`MT` → DLT. |
+| RN-01 | Origem e destino são procurados na tabela de 132 cidades (Apêndice A) pelo nome, sem diferenciar maiúsculas, acentos e espaços repetidos, e pela UF (exata, maiúscula, garantida pelo contrato). A solicitação grava o nome e a UF da tabela. Origem fora da tabela → DLT com `error` `"Cidade de origem desconhecida: <origem recebida>"`; depois, o mesmo para o destino. | `"  sao   paulo "`/`SP` → São Paulo. `Atlântida`/`MT` → DLT. |
 | RN-02 | `distancia_km` = `arredondar(haversine × 1,3; 1 casa)`, com as coordenadas da tabela. | Sorriso/MT → Santos/SP: 2091.1. Rio Verde/GO → Paranaguá/PR: 1163.0. |
 | RN-03 | `data_coleta_prevista` = próximo dia útil da data **UTC** de `aberta_em`. | `2026-11-10T12:00Z` → `2026-11-11`; `2026-11-13T12:00Z` → `2026-11-16`. |
 | RN-04 | `prazo_decisao_em` = `aberta_em` + `PRAZO_DECISAO_SEGUNDOS` (43200 s = 12 h). | `2026-11-10T12:00:00.000Z` → `2026-11-11T00:00:00.000Z`. |
-| RN-05 | Há no máximo uma solicitação por `pedidoId`. Um segundo `pedido_criado` para o mesmo pedido, com outro `eventId`, é ignorado: não altera, não publica, não vai à DLT. | CA-03. |
+| RN-05 | Há no máximo uma solicitação por `pedidoId` em cada rodada; as rodadas seguintes só abrem pela RN-36. Um segundo `pedido_criado` para o mesmo pedido, com outro `eventId`, é ignorado: não altera, não publica, não vai à DLT. | CA-03. |
 | RN-06 | `pedido_atualizado` CANCELADO de um pedido sem solicitação registra o cancelamento. Um `pedido_criado` posterior desse pedido não abre solicitação, não publica e não vai à DLT. | CA-08. |
 | RN-07 | Há no máximo uma cotação por (solicitação, transportadora). Uma segunda é ignorada e a primeira fica como está. | CA-10. |
 | RN-08 | A cotação recebida com a solicitação aberta tem `status` `"VALIDA"`; com a solicitação em qualquer outro status, `"RECUSADA_TARDE"`. Cotação tardia é guardada, aparece na API-05 e na API-07, e não pode ser escolhida. Solicitação inexistente → DLT `"Solicitação desconhecida: <id>"`. | CA-12. |
 | RN-09 | A primeira cotação válida muda a solicitação de `ABERTA` ou `SEM_COTACAO` para `COTADA`. | CA-09, CA-13. |
 | RN-10 | Rodada automática: uma solicitação `ABERTA` sem cotação passa a `SEM_COTACAO` quando a hora **real** alcança abertura + `RODADA_COTACAO_SEGUNDOS` (10 s). A rotina roda a cada 1 s. A rodada usa hora real porque é a espera técnica das respostas automáticas: no relógio acelerado, ela terminaria antes de as cotações chegarem. | CA-14. |
-| RN-11 | Quando `agora ≥ prazo_decisao_em` e a solicitação está `SEM_COTACAO`, ela passa a `INDISPONIVEL` e o serviço publica `frete_indisponivel` com motivo `SEM_COTACAO`. | CA-15. |
+| RN-11 | Quando `agora ≥ prazo_decisao_em` e a solicitação está `SEM_COTACAO`, ela passa a `INDISPONIVEL` e o serviço publica `frete_indisponivel` com motivo `SEM_COTACAO` e abre a rodada seguinte (RN-36). | CA-15, CA-87. |
 | RN-12 | O comprador pode escolher **qualquer** cotação válida, não só a mais barata, enquanto `agora ≤ prazo_decisao_em` (inclusive). Com `agora > prazo_decisao_em` → 409 `PRAZO_DE_ESCOLHA_ENCERRADO`. | CA-21 escolhe C-GRA, que não é a mais barata. |
 | RN-13 | Regra automática (glossário), usada no botão (`modo: AUTOMATICO`), no fim do prazo e na troca de transportadora: menor `preco` → menor `prazo_dias` → maior pontualidade (sem histórico = 0) → menor `transportadora_id`. Considera só cotações `VALIDA`. | Q-A 5000/6 × Q-B 5000/5 → Q-B. |
 | RN-14 | A escolha só grava se o status ainda for `COTADA` (gravação condicional). Erros de status, verificados antes do prazo e da cotação: `SELECIONADA` → 409 `FRETE_JA_ESCOLHIDO`; `ABERTA` ou `SEM_COTACAO` → 409 `SEM_COTACAO_PARA_ESCOLHER`; `CANCELADA` ou `INDISPONIVEL` → 409 `SOLICITACAO_ENCERRADA`. Se outra escolha gravar entre a leitura e a gravação → 409 `FRETE_JA_ESCOLHIDO`. | Duas escolhas simultâneas: uma 200, a outra 409. |
@@ -1733,16 +1810,18 @@ Cenário: Documento recusado
 | RN-21 | Rastreio: entrega desconhecida → DLT `"Entrega desconhecida: <id>"`. `sequencia` ≤ última aplicada → ignorado. Entrega encerrada → ignorado. O evento ignorado não é gravado e não vai à DLT. A comparação de sequência vem antes da de status. | CA-46, CA-49. |
 | RN-22 | Efeito de cada `tipo` de rastreio aplicado: `VIAGEM_ALOCADA` → status `AGUARDANDO_COLETA`, grava motorista, veículo, `rota`, `coleta_prevista`, `previsao_chegada`, posição e `posicao_em` = `ocorridoEm`, `progresso` 0, e o nome e o telefone da transportadora se vierem; `COLETA_REALIZADA` → `EM_TRANSITO`, `coletada_em` = `ocorridoEm`, posição se vier; `POSICAO`, `PARADA` e `PREVISAO_ATUALIZADA` → posição, `posicao_em`, `progresso` e `previsao_chegada`; `OCORRENCIA` → `com_ocorrencia` = true; `ENTREGA_REALIZADA` → `ENTREGUE`, `entregue_em` = `ocorridoEm`, `no_prazo`, `atraso_horas`, `progresso` 1 e posição; `VIAGEM_RECUSADA` → RN-23. Todo rastreio aplicado é gravado em `eventos` (API-10). | CA-44 a CA-48. |
 | RN-23 | Recusa da viagem: a entrega vira `RECUSADA` e a cotação dela `VIAGEM_RECUSADA`. Entre as cotações `VALIDA` restantes, a regra automática escolhe a nova; a solicitação continua `SELECIONADA`, com a nova `cotacao_escolhida_id` e `criterio` `AUTOMATICO_MENOR_PRECO` (`escolhida_por` e `escolhida_em` não mudam). Cria-se uma entrega com `tentativa` + 1 e publica-se um novo `frete_selecionado`. A troca é condicional à cotação recusada ainda ser a escolhida: uma recusa repetida não troca de novo. | CA-51, CA-53. |
-| RN-24 | Se não restar cotação `VALIDA`, a solicitação passa a `INDISPONIVEL` e o serviço publica `frete_indisponivel` com motivo `SEM_TRANSPORTADORA_DISPONIVEL`. | CA-52. |
+| RN-24 | Se não restar cotação `VALIDA`, a solicitação passa a `INDISPONIVEL` e o serviço publica `frete_indisponivel` com motivo `SEM_TRANSPORTADORA_DISPONIVEL` e abre a rodada seguinte (RN-36). | CA-52, CA-88. |
 | RN-25 | Ao aplicar `ENTREGA_REALIZADA`, o desempenho da transportadora soma 1 em `entregas`, 1 em `entregas_no_prazo` se `noPrazo` for true, e `atrasoHoras` em `atraso_total_horas`; e o serviço publica `entrega_concluida`. | CA-48. |
 | RN-26 | Comparação (API-07): `preco_t_km` (glossário); selos calculados só entre cotações `VALIDA`, e empates ganham o selo juntos: `MAIS_BARATA` (menor preço), `MAIS_RAPIDA` (menor prazo), `MAIS_PONTUAL` (maior pontualidade, só se alguma tiver histórico), `RECOMENDADA_PELA_REGRA` (a que a regra automática escolheria, uma só); cotação não válida tem `selos` `[]`. `desempenho`: `entregas` (0 sem histórico), `pct_no_prazo` (4 casas ou `null`), `atraso_medio_horas` (`atraso_total_horas ÷ entregas`, 1 casa, ou `null`). `escolhida`: id = `cotacao_escolhida_id`. `podeEscolher`: status `COTADA` **e** `agora ≤ prazo_decisao_em` **e** perfil comprador ou admin. | CA-38 a CA-40. |
 | RN-27 | Relógio: `agora = base_virtual + (hora real − base_real) × fator`. O ajuste calcula a hora do módulo atual, soma `avancarHoras` e grava como nova `base_virtual`, com `base_real` = hora real, o novo `fator` e `versao` + 1. Nunca volta para trás. Dois ajustes simultâneos são serializados por trava no banco. | Fator 1 → 3600 às 12:10: `baseVirtual` 12:10, e 1 s real depois o módulo marca 13:10. |
 | RN-28 | Paginação: `page` ≥ 1 (padrão 1), `size` de 1 a 100 (padrão 10); fora disso → 422. Solicitações por `aberta_em` decrescente; entregas por criação decrescente. `total` conta os itens visíveis com os filtros aplicados. | `size=101` → 422. |
-| RN-29 | A API-08 omite entregas `RECUSADA`, a menos que `incluir_recusadas=true`; com `status` informado, vale só o filtro de status. A API-11 devolve a entrega de maior `tentativa` do pedido, de qualquer status. | CA-51. |
+| RN-29 | A API-08 omite entregas `RECUSADA`, a menos que `incluir_recusadas=true`; com `status` informado, vale só o filtro de status. A API-11 devolve a entrega da maior `rodada` do pedido que tenha entrega e, nela, a de maior `tentativa`, de qualquer status. | CA-51. |
 | RN-30 | Consumo: o `eventId` é gravado em `processed_events` na mesma transação do efeito; um `eventId` já gravado é ignorado. JSON ilegível, envelope incompleto, payload fora do contrato ou referência inexistente (`EventoInvalido`) → DLT direto (`failedAtAttempt` 1). Outra falha → novas tentativas depois de 1 s, 2 s e 4 s; depois → DLT (`failedAtAttempt` 4). Mensagem com `eventId` que foi para a DLT por payload inválido fica marcada: uma cópia dela é ignorada. O offset só avança depois de processar ou de gravar na DLT; se o banco estiver fora, o consumidor espera e não perde a mensagem. | CA-61, CA-62. |
 | RN-31 | Requisição com erro (qualquer 4xx) não altera estado, não grava evento e não memoriza a `Idempotency-Key`. | CA-33. |
 | RN-32 | Notificações: gravadas na mesma transação da mudança, com `criada_em` = hora do módulo dessa mudança e `lida` false. Destinatário = (empresa, perfil): `comprador_id` com perfil comprador e `fornecedor_id` com perfil fornecedor. Transportadora e admin não recebem. Tipos, `titulo` (literal) e quem recebe: `COTACOES_DISPONIVEIS` "Cotações de frete disponíveis" (primeira cotação válida muda a solicitação para `COTADA`, RN-09) → comprador. `SEM_COTACAO` "Nenhuma transportadora cotou ainda" (RN-10) → os dois. `FRETE_ESCOLHIDO` "Frete escolhido" (RN-17 e RN-18) → fornecedor; também o comprador quando `escolhida_por` é `null` (rotina de prazos). `FRETE_INDISPONIVEL` "Frete indisponível" (RN-11, RN-24) → os dois. `TRANSPORTADORA_TROCADA` "Transportadora trocada" (RN-23) → os dois. `MOTORISTA_ESCALADO` "Motorista escalado" (`VIAGEM_ALOCADA`) → os dois. `COLETA_REALIZADA` "Carga coletada" → os dois. `PREVISAO_ATUALIZADA` "Previsão de chegada alterada" → comprador. `ENTREGA_REALIZADA` "Entrega realizada" → os dois. `OCORRENCIA` "Ocorrência na entrega" (API-15) → a outra parte (quem reportou não recebe). Cancelamento (RN-20), rastreio `POSICAO`, `PARADA` e `OCORRENCIA`, e ajuste do relógio não geram notificação. Uma mudança que não acontece (mensagem ignorada, gravação condicional que perde) não gera notificação. | CA-74 a CA-77. |
 | RN-33 | Ocorrência (API-15): só comprador ou fornecedor, numa entrega visível (RN-19) com status diferente de `CANCELADA` e `RECUSADA` (entrega `ENTREGUE` aceita: avaria descoberta na chegada). `descricao`: os espaços das pontas são retirados antes de contar; de 5 a 500 caracteres depois disso. Grava `autor_papel` = perfil e `ocorrida_em` = hora do módulo; marca `com_ocorrencia` true; notifica a outra parte (RN-32). A API-14 e o campo `ocorrencias` da API-10 listam todas, por `ocorrida_em` crescente, para qualquer status da entrega. | "  abc  " → 422; entrega `CANCELADA` → 409. CA-78, CA-79. |
+| RN-35 | Pedido de leilão (D26): o pedido nasce na abertura do leilão, e o comprador só é definido no fechamento (professor, 12/11/2026). Um `pedido_criado` sem `compradorId` ou sem `destino` (nulo, ausente ou vazio) é guardado em `pedido_aguardando`, sem solicitação. Um `pedido_atualizado` que não seja `CANCELADO` e traga `compradorId` ou `destino` é um fechamento, seja qual for o status (Q-13); dele valem `compradorId`, `destino`, `quantidade`, `pesoKg`, `valorTotal` e `dataEntregaDesejada` não nulos. Pedido e fechamento são guardados em separado e juntados com o fechamento por cima; um valor nulo nunca apaga outro. Quando há pedido e o resultado tem `compradorId` e `destino`, a solicitação abre (RF-01), com o `correlationId` do `pedido_criado`, e a linha é apagada. Fechamento de pedido que já tem solicitação, ou que foi cancelado, é ignorado. Cancelamento apaga a linha (RN-06 continua valendo). Cidade fora da tabela no fechamento → DLT na hora (RN-01). | P-L + F-L → solicitação com o comprador e o valor de F-L. CA-83 a CA-86. |
+| RN-36 | Nova rodada (D27): o frete indisponível não encerra o pedido, porque o grupo de Pedidos não o cancela (a venda já foi concluída e o estoque já teve baixa; ESP-PED-001, RN-22 e D-05). Na mesma transação do `frete_indisponivel` (RN-11 ou RN-24), o serviço abre outra solicitação para o mesmo pedido, com `rodada` + 1 e a mesma carga (produto, valor, comprador, fornecedor, tipo, peso, origem, destino e `dataEntregaDesejada`). Tudo o mais recomeça como no RF-01: `id` novo, `aberta_em` = agora, coleta, prazo de 12 h, rodada de 10 s, status `ABERTA` e `solicitacao_frete_criada` com o `correlationId` do pedido e `rodada`. As entregas da nova rodada começam na `tentativa` 1. Não há limite de rodadas: sem cotação, cada rodada dura no mínimo os 10 s reais e as 12 h do módulo. O cancelamento (RN-20) age sobre a rodada mais recente. As notificações `SEM_COTACAO`, `FRETE_INDISPONIVEL` dizem que uma nova cotação foi aberta, e não que o pedido será cancelado. | S-2 sem cotação: no fim do prazo, S-2 fica `INDISPONIVEL` e a rodada 2 abre `ABERTA`. CA-87, CA-88. |
 | RN-34 | Documentos (API-16): PDF gerado na hora com os dados atuais da entrega (API-09), em qualquer status, inclusive `CANCELADA` e `ENTREGUE`. Todo documento tem, no cabeçalho, "Portal B2B - <título>", "Nº <número>" e "Emitido em <hora do módulo, horário de Brasília> (hora do módulo)", e a marca d'água "DOCUMENTO DEMONSTRATIVO - SEM VALOR FISCAL". Títulos: `cte` "CT-e - Conhecimento de Transporte Eletrônico"; `romaneio` "Romaneio de carga"; `nota-fiscal` "Nota fiscal de venda"; `comprovante-coleta` "Comprovante de coleta". Número = `int(sha1("<tipo>:<id da entrega>") em hexadecimal, 8 primeiros dígitos) mod 1000000`, com 6 dígitos (zeros à esquerda): o mesmo documento tem sempre o mesmo número. Campos ainda vazios aparecem como "a definir" (placa, motorista) ou "-". `comprovante-coleta` só existe com `coletada_em` preenchido; antes → 409 `DOCUMENTO_INDISPONIVEL`. | E-1: cte 154995, romaneio 154205, nota-fiscal 448765, comprovante-coleta 600897. CA-80, CA-81. |
 
 ## 10. Catálogo de erros
@@ -1905,6 +1984,8 @@ O pedido de teste é criado pelo `pedidos-falso` (`POST /api/v1/pedidos-falso/pe
 | RF-08 | RN-13, RN-18 | Rotina de prazos, `frete_selecionado` | CA-37. Sem CA de erro: a rotina não recebe entrada; o conflito com o comprador está em CA-31 |
 | RF-09 | RN-19, RN-26 | API-07 | CA-38 a CA-40 |
 | RF-10 | RN-06, RN-20 | `pedido_atualizado` | CA-08, CA-41 a CA-43 |
+| RF-20 | RN-01, RN-05, RN-06, RN-35 | `pedido_criado`, `pedido_atualizado`, `solicitacao_frete_criada` | CA-83 a CA-86 |
+| RF-21 | RN-11, RN-24, RN-36 | Rotina de prazos, `rastreio_atualizado`, `frete_indisponivel`, `solicitacao_frete_criada`, API-04, API-11 | CA-87, CA-88 |
 | RF-11 | RN-21, RN-22, RN-25 | `rastreio_atualizado`, `entrega_concluida`, API-09, API-10 | CA-44 a CA-50 |
 | RF-12 | RN-23, RN-24 | `rastreio_atualizado`, `frete_selecionado`, `frete_indisponivel`, API-08, API-11 | CA-51 a CA-53 |
 | RF-13 | RN-19, RN-28, RN-29 | API-08 a API-11 | CA-54, CA-55 |
@@ -1935,6 +2016,8 @@ Os CAs do token (CA-20) são cobertos pelos testes unitários de `comum/tests/te
 | Q-10 | Decisão | Formato de datas nos eventos. | O JSON Schema não confere `format`. Data ilegível chega ao banco, que recusa; a mensagem vai para a DLT depois das 3 retentativas (CA-62). |
 | Q-11 | Premissa (D2) | Campos do `pedido_criado`. | Os do §7.3, propostos ao grupo de Pedidos (`docs/contratos/proposta-grupo-pedidos.md`). **Dependem da resposta do grupo de Pedidos.** |
 | Q-12 | Decisão | Hora real × hora do módulo. | Hora real só na rodada (RN-10), em `atualizado_em` e no `timestamp` do envelope. Todo o resto usa a hora do módulo. |
+| Q-13 | Decisão (D26) | Fechamento do leilão. | Definido pelo grupo de Pedidos (ESP-PED-001 v2.1, D-03, 19/11/2026): o `pedido_atualizado` `VENDA_CONCLUIDA` traz o `compradorId` sem destino, e o `AGUARDANDO_FRETE` traz a carga completa, com o destino. Pela RN-35, os campos se juntam e a solicitação abre no `AGUARDANDO_FRETE`. O `pedidos-falso` publica `AGUARDANDO_FRETE`. Os exemplos do grupo de Pedidos passam nos schemas deste serviço. |
+| Q-14 | Decisão (D27) | Frete indisponível depois da venda. | Pedido do grupo de Pedidos (issue #1 deste repositório, 23/11/2026): o pedido não é cancelado, e a logística abre uma nova solicitação (RN-36). O `pedidos-falso` deixou de cancelar o pedido ao receber `frete_indisponivel`. |
 
 Q-03, Q-04, Q-05 e Q-11 têm decisão tomada e implementada; o que falta é a confirmação de outro grupo ou do professor. Se a confirmação vier diferente, esta especificação ganha uma nova versão.
 
@@ -1974,13 +2057,15 @@ Q-03, Q-04, Q-05 e Q-11 têm decisão tomada e implementada; o que falta é a co
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.4 | 2026-11-23 | Grupo 5 | Resposta ao grupo de Pedidos (issue #1, ESP-PED-001 v2.1). Frete indisponível não cancela o pedido: abre uma nova rodada para o mesmo pedido (D27; RF-21, RN-36, CA-87, CA-88, Q-14), com o campo `rodada` na solicitação e no `solicitacao_frete_criada` e a `tentativa` única por solicitação. Fechamento do leilão definido por eles (`VENDA_CONCLUIDA` e `AGUARDANDO_FRETE`, Q-13). Tabela de cidades de 35 para 132, com as 27 capitais (RN-01, Apêndice A); a parada do cenário da ESP-TRP-001 continua em Jataí. RN-05, RN-11, RN-24, RN-29 e §6.2 ajustados. |
+| 1.3 | 2026-11-14 | Grupo 5 | Pedido de leilão (D26): segundo o professor (12/11/2026), o pedido nasce na abertura do leilão e o comprador só é definido no fechamento. `compradorId` e `destino` passam a opcionais no `pedido_criado`; a solicitação abre no `pedido_atualizado` de fechamento (RF-20, RN-35, CA-83 a CA-86, Q-13, tabela `pedido_aguardando`). CA-05 trocou "sem o campo destino" (agora válido) por destino sem `uf`, sem `origem` e `compradorId` vazio. RF-01 e §7.3 ajustados. |
 | 1.2 | 2026-11-10 | Grupo 5 | Todas as rotas do serviço especificadas: ocorrências (API-14, API-15, RF-18, RN-33), documentos em PDF (API-16, RF-19, RN-34) e notificações (API-17, API-18, RF-17, RN-32), com 3 códigos de erro novos (§10). Filtro `pedido_id` na API-04 (CA-73) e teste de carga de escrita (RNF-11, CA-82). Exemplos tirados de respostas reais do ambiente. Ao escrever, um defeito foi corrigido: uma ocorrência só com espaços (`"     "`) passava no mínimo de 5 caracteres e era gravada vazia; agora os espaços das pontas saem antes de contar (CA-79). CA-01 a CA-72 sem mudança. |
 | 1.1 | 2026-11-10 | Grupo 5 | Token conforme o código do Identity-Service: `iss` e `aud` conferidos (antes, todo token real seria recusado, porque o PyJWT recusa `aud` não esperado), admin pelo `platform_role` `PLATFORM_ADMIN` e 403 `CONTEXTO_NAO_SELECIONADO` para token sem empresa ou escopo (§7.1, §10, CA-20, Q-05). |
 | 1.0 | 2026-11-10 | Grupo 5 | Criação, a partir do serviço implementado (etapas 1 a 5) e de respostas reais capturadas no ambiente. Ao escrever as duas especificações, quatro defeitos foram corrigidos no código (explicação 07). Os que afetam este documento: `VIAGEM_ALOCADA` sem `posicao` passava no contrato (agora vai direto à DLT, CA-50) e fator do relógio com mais de 2 casas respondia 500 ou era gravado diferente do publicado (agora 422, CA-59). Os outros dois estão na ESP-TRP-001. |
 
 ## Apêndice A — Tabela de cidades
 
-Coordenadas aproximadas do centro da cidade, usadas só na simulação (D15).
+Coordenadas aproximadas do centro da cidade, usadas só na simulação (D15). São 132 cidades, de todas as 27 unidades da federação.
 
 | Cidade | UF | lat | lon |
 |---|---|---|---|
@@ -2019,3 +2104,100 @@ Coordenadas aproximadas do centro da cidade, usadas só na simulação (D15).
 | Rio Grande | RS | -32.0350 | -52.0986 |
 | Itajaí | SC | -26.9078 | -48.6619 |
 | Rio de Janeiro | RJ | -22.9068 | -43.1729 |
+| Brasília | DF | -15.7939 | -47.8828 |
+| Palmas | TO | -10.1840 | -48.3336 |
+| Belém | PA | -1.4558 | -48.4902 |
+| Manaus | AM | -3.1190 | -60.0217 |
+| Porto Velho | RO | -8.7612 | -63.9004 |
+| Rio Branco | AC | -9.9754 | -67.8249 |
+| Boa Vista | RR | 2.8235 | -60.6758 |
+| Macapá | AP | 0.0349 | -51.0694 |
+| Teresina | PI | -5.0920 | -42.8038 |
+| Fortaleza | CE | -3.7319 | -38.5267 |
+| Natal | RN | -5.7945 | -35.2110 |
+| João Pessoa | PB | -7.1195 | -34.8450 |
+| Maceió | AL | -9.6658 | -35.7353 |
+| Aracaju | SE | -10.9472 | -37.0731 |
+| Vitória | ES | -20.3155 | -40.3128 |
+| Florianópolis | SC | -27.5954 | -48.5480 |
+| Anápolis | GO | -16.3281 | -48.9534 |
+| Aparecida de Goiânia | GO | -16.8198 | -49.2469 |
+| Itumbiara | GO | -18.4093 | -49.2158 |
+| Catalão | GO | -18.1656 | -47.9440 |
+| Mineiros | GO | -17.5654 | -52.5537 |
+| Cristalina | GO | -16.7676 | -47.6131 |
+| Luziânia | GO | -16.2525 | -47.9501 |
+| Quirinópolis | GO | -18.4483 | -50.4519 |
+| Tangará da Serra | MT | -14.6229 | -57.4933 |
+| Campo Verde | MT | -15.5456 | -55.1626 |
+| Nova Mutum | MT | -13.8374 | -56.0743 |
+| Querência | MT | -12.6093 | -52.1821 |
+| Barra do Garças | MT | -15.8900 | -52.2567 |
+| Alta Floresta | MT | -9.8756 | -56.0861 |
+| Diamantino | MT | -14.4086 | -56.4461 |
+| Três Lagoas | MS | -20.7849 | -51.7007 |
+| Chapadão do Sul | MS | -18.7908 | -52.6260 |
+| Ponta Porã | MS | -22.5296 | -55.7203 |
+| Corumbá | MS | -19.0077 | -57.6510 |
+| São Gabriel do Oeste | MS | -19.3950 | -54.5503 |
+| Juiz de Fora | MG | -21.7642 | -43.3496 |
+| Montes Claros | MG | -16.7350 | -43.8617 |
+| Patos de Minas | MG | -18.5789 | -46.5181 |
+| Unaí | MG | -16.3592 | -46.9064 |
+| Paracatu | MG | -17.2252 | -46.8711 |
+| Varginha | MG | -21.5513 | -45.4303 |
+| Ipatinga | MG | -19.4683 | -42.5367 |
+| Araguari | MG | -18.6456 | -48.1934 |
+| Patrocínio | MG | -18.9437 | -46.9934 |
+| São José do Rio Preto | SP | -20.8113 | -49.3758 |
+| Bauru | SP | -22.3246 | -49.0871 |
+| Presidente Prudente | SP | -22.1207 | -51.3925 |
+| Araçatuba | SP | -21.2089 | -50.4328 |
+| Piracicaba | SP | -22.7253 | -47.6492 |
+| Sorocaba | SP | -23.5015 | -47.4526 |
+| São José dos Campos | SP | -23.1896 | -45.8841 |
+| Franca | SP | -20.5386 | -47.4009 |
+| Barretos | SP | -20.5531 | -48.5698 |
+| Marília | SP | -22.2139 | -49.9458 |
+| Maringá | PR | -23.4205 | -51.9333 |
+| Foz do Iguaçu | PR | -25.5163 | -54.5854 |
+| Guarapuava | PR | -25.3935 | -51.4562 |
+| Toledo | PR | -24.7246 | -53.7412 |
+| Campo Mourão | PR | -24.0463 | -52.3780 |
+| Joinville | SC | -26.3045 | -48.8487 |
+| Chapecó | SC | -27.1004 | -52.6152 |
+| Blumenau | SC | -26.9194 | -49.0661 |
+| Lages | SC | -27.8150 | -50.3259 |
+| São Francisco do Sul | SC | -26.2433 | -48.6383 |
+| Caxias do Sul | RS | -29.1678 | -51.1794 |
+| Passo Fundo | RS | -28.2620 | -52.4064 |
+| Pelotas | RS | -31.7654 | -52.3376 |
+| Santa Maria | RS | -29.6842 | -53.8069 |
+| Cruz Alta | RS | -28.6386 | -53.6064 |
+| Ijuí | RS | -28.3880 | -53.9147 |
+| Barreiras | BA | -12.1439 | -44.9968 |
+| Feira de Santana | BA | -12.2664 | -38.9663 |
+| Vitória da Conquista | BA | -14.8615 | -40.8442 |
+| Ilhéus | BA | -14.7936 | -39.0463 |
+| Imperatriz | MA | -5.5185 | -47.4777 |
+| Uruçuí | PI | -7.2294 | -44.5561 |
+| Bom Jesus | PI | -9.0744 | -44.3586 |
+| Gurupi | TO | -11.7279 | -49.0686 |
+| Araguaína | TO | -7.1910 | -48.2075 |
+| Porto Nacional | TO | -10.7081 | -48.4172 |
+| Santarém | PA | -2.4385 | -54.6996 |
+| Marabá | PA | -5.3686 | -49.1178 |
+| Paragominas | PA | -2.9967 | -47.3525 |
+| Barcarena | PA | -1.5059 | -48.6258 |
+| Itacoatiara | AM | -3.1386 | -58.4442 |
+| Vilhena | RO | -12.7406 | -60.1458 |
+| Ji-Paraná | RO | -10.8853 | -61.9517 |
+| Petrolina | PE | -9.3891 | -40.5030 |
+| Caruaru | PE | -8.2760 | -35.9819 |
+| Juazeiro do Norte | CE | -7.2131 | -39.3151 |
+| Campina Grande | PB | -7.2307 | -35.8817 |
+| Mossoró | RN | -5.1878 | -37.3441 |
+| Linhares | ES | -19.3946 | -40.0643 |
+| Campos dos Goytacazes | RJ | -21.7545 | -41.3244 |
+| Itaguaí | RJ | -22.8636 | -43.7798 |
+| Volta Redonda | RJ | -22.5231 | -44.1042 |

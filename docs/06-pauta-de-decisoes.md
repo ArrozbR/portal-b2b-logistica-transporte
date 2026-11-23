@@ -37,6 +37,8 @@ Situações:
 | D23 | Contingência | Script que publica pedidos falsos no Kafka | Aceita |
 | D24 | Repasse de conhecimento | Um arquivo de explicação por parte pronta | Aceita |
 | D25 | Token do grupo de Autenticação | Token RS256 da Autenticação (JWKS, `tenant_id`, `active_scope`); o formato do kit (HS256) continua por configuração | Aceita; admin pelo `platform_role` `PLATFORM_ADMIN` do Identity-Service. Depende da Infra (kit) |
+| D26 | Pedido que nasce sem comprador (leilão) | O frete só abre quando o pedido tem comprador e destino; no leilão, isso chega no fechamento (`pedido_atualizado`) | Aceita; confirmada pelo grupo de Pedidos (`VENDA_CONCLUIDA` e `AGUARDANDO_FRETE`, 19/11/2026) |
+| D27 | Frete indisponível depois da venda | Não cancela o pedido: abre uma nova rodada de cotação para o mesmo pedido | Aceita (pedido do grupo de Pedidos, issue #1, 23/11/2026) |
 
 ## 2. Decisões
 
@@ -240,6 +242,44 @@ Implementado: `comum.ferramentas.publicar_pedido_falso` (etapa 1), `comum.ferram
 Implementado: `comum/comum/auth.py`, `comum/comum/ferramentas/usuarios_falso.py` e `gerar_token.py`, com 16 testes em `comum/tests/test_auth.py`.
 
 **Situação:** aceita. O administrador da plataforma está resolvido pelo `platform_role`. Falta a Infra atualizar o kit.
+
+### D26. Pedido que nasce sem comprador (leilão)
+
+**Contexto:** em 12/11/2026, o professor respondeu ao grupo de Fornecimento e Produtos (pelo Teams; registrado como F14 no documento de requisitos deles) que o pedido é criado na **abertura** do leilão ou da negociação, e não no fechamento. O leilão é o "portador do pedido": o comprador só é definido quando ele fecha, com o último lance válido, e a compra e venda acontece depois. O professor pediu à Infraestrutura que mude o kit, que hoje cria o pedido a partir de `negociacao_fechada`. Produtos passou a aceitar `compradorId` nulo no `pedido_criado` (contrato de eventos 1.3).
+
+Para nós, isso quebrava o fluxo: o nosso contrato exigia `compradorId` e `destino`, então o pedido de leilão iria para a DLT. E não faz sentido cotar frete antes do fechamento: o destino é o local do comprador, o prazo de 12 h é para o comprador escolher, e o leilão pode nem fechar.
+
+**Decisão:** a solicitação de frete só abre quando o pedido tem **comprador e destino**.
+
+1. `pedido_criado` com comprador e destino (negociação direta, ou se Pedidos já mandar no fechamento): abre na hora, como antes.
+2. `pedido_criado` sem comprador ou sem destino (leilão): o pedido fica guardado (`logistica.pedido_aguardando`), sem solicitação e sem aviso a ninguém.
+3. `pedido_atualizado` que não seja `CANCELADO` e traga `compradorId` ou `destino` é tratado como o fechamento. Os campos dele (inclusive `valorTotal` e `pesoKg` do lance vencedor) vão por cima dos do pedido, e a solicitação abre com o `correlationId` do `pedido_criado`.
+4. Os dois eventos vêm de tópicos diferentes e podem chegar em qualquer ordem: o fechamento que chega antes também é guardado.
+5. Cancelamento antes do fechamento tira o pedido da espera, e um fechamento posterior é ignorado.
+
+**Resposta do grupo de Pedidos** (ESP-PED-001 v2.1, D-03, e issue #1 deste repositório, 19 e 23/11/2026): o pedido nasce sem comprador e sem destino tanto no leilão quanto na negociação direta, só para reservar o estoque. O `pedido_atualizado` `VENDA_CONCLUIDA` traz o comprador (sem destino); depois, o comprador informa o destino, e o `pedido_atualizado` `AGUARDANDO_FRETE` traz a carga completa. Pela regra 3, os campos se juntam e a solicitação abre no `AGUARDANDO_FRETE`. Os exemplos deles passam nos nossos schemas. O `pedidos-falso` passou a publicar `AGUARDANDO_FRETE`.
+
+Implementado: `services/logistica-service/logistica/pedidos.py` (regras puras), `servico.py` (`abrir_solicitacao`, `atualizar_pedido`), migração `005_pedido_aguardando.sql`, contratos `pedido_criado` e `pedido_atualizado`, opção "Pedido de leilão" no botão do admin, ESP-LOG-001 1.3 (RF-20) e [explicação 10](explicacoes/10-pedido-de-leilao.md).
+
+**Situação:** aceita e confirmada pelo grupo de Pedidos.
+
+### D27. Frete indisponível depois da venda
+
+**Contexto:** o frete fica indisponível quando nenhuma transportadora cota no prazo de 12 h ou quando nenhuma das que cotaram tem frota livre. Até aqui, o grupo de Pedidos cancelava o pedido (o nosso `pedidos-falso` fazia isso). Na ESP-PED-001 v2.1 (RN-22 e D-05), eles decidiram não cancelar: a venda já foi concluída no fechamento e o estoque já teve baixa, e o estorno está fora da versão deles. Na issue #1 do nosso repositório (23/11/2026), pediram que a logística abra uma nova `solicitacao_frete_criada` para o mesmo pedido, com a `tentativa` recomeçando em 1.
+
+**Decisão:** o frete indisponível abre uma nova rodada de cotação.
+
+1. Na mesma transação do `frete_indisponivel`, a logística abre outra solicitação para o mesmo pedido, com `rodada` + 1 e a mesma carga. Prazos, coleta e rodada de 10 s recomeçam.
+2. Cada solicitação é única por (pedido, rodada), e a `tentativa` da entrega é única por solicitação: recomeça em 1.
+3. Não há limite de rodadas. Sem cotação, cada uma dura no mínimo 10 s reais e as 12 h do módulo, então não há laço rápido.
+4. O cancelamento age sobre a rodada mais recente. As notificações dizem que uma nova cotação foi aberta.
+5. O `pedidos-falso` não cancela mais o pedido ao receber `frete_indisponivel`.
+
+**Alternativa rejeitada:** manter o cancelamento. O pedido ficaria parado do lado de Pedidos, que não cancela depois da venda.
+
+Implementado: `servico.py` (`_reabrir`, `pedido_da_solicitacao`), migração `006_nova_rodada.sql`, campo `rodada` no `solicitacao_frete_criada`, tela de solicitações, `pedidos-falso`, teste de integração `test_frete_indisponivel.py`, ESP-LOG-001 1.4 (RF-21) e [explicação 11](explicacoes/11-nova-rodada-e-cidades.md).
+
+**Situação:** aceita.
 
 ## 3. Perguntas para o professor
 

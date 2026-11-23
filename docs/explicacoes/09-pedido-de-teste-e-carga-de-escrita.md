@@ -12,7 +12,7 @@ No caminho, apareceram um defeito no código e um problema no ambiente de testes
 
 ### O que faz
 
-Na tela **Solicitações de frete**, o administrador vê o botão **+ Novo pedido de teste**. Ele abre um formulário com origem, destino (as 35 cidades da simulação), tipo de carga, peso, produto e valor. Ao confirmar, a solicitação aparece na lista em menos de um segundo, e as transportadoras cotam em seguida.
+Na tela **Solicitações de frete**, o administrador vê o botão **+ Novo pedido de teste**. Ele abre um formulário com origem, destino (as cidades da simulação; 132 desde 23/11/2026), tipo de carga, peso, produto e valor. Ao confirmar, a solicitação aparece na lista em menos de um segundo, e as transportadoras cotam em seguida.
 
 ### Como funciona
 

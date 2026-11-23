@@ -59,6 +59,8 @@ O exemplo do guia traz `pedidoId`, `negociacaoId`, `compradorId`, `fornecedorId`
 
 `valorTotal`, que já existe, vira o **valor da carga** na tela. Plano B, se Pedidos não puder: cópias locais de `produto_cadastrado`, `fornecimento_criado` e `empresa_cadastrada` (D2).
 
+**Pedido de leilão (D26).** Segundo o professor (12/11/2026), o pedido nasce na abertura do leilão, e o comprador só é definido no fechamento. Por isso `compradorId` e `destino` podem vir nulos ou ausentes no `pedido_criado`. Nesse caso, a logística guarda o pedido e só abre a solicitação quando chega o fechamento: um `pedido_atualizado` (qualquer status, exceto `CANCELADO`) com `compradorId` e `destino`, e opcionalmente `valorTotal`, `quantidade` e `pesoKg` do lance vencedor, que valem no lugar dos do pedido. Os dois eventos podem chegar em qualquer ordem. O evento e o status do fechamento ainda dependem do grupo de Pedidos ([proposta](contratos/proposta-grupo-pedidos.md), seção 1.1 e perguntas 5 a 9).
+
 ### 3.2 `solicitacao_frete_criada` (publicado pela logística)
 
 ```json
@@ -182,7 +184,7 @@ O `pedidos-service` consome e move o pedido para `ENTREGUE`.
 }
 ```
 
-`motivo`: `SEM_COTACAO` (12 h sem nenhuma cotação) ou `SEM_TRANSPORTADORA_DISPONIVEL` (todas as cotações recusaram a viagem). O `pedidos-service` consome e cancela o pedido; o `pedido_atualizado` com `CANCELADO` que ele publica fecha o ciclo na logística.
+`motivo`: `SEM_COTACAO` (12 h sem nenhuma cotação) ou `SEM_TRANSPORTADORA_DISPONIVEL` (todas as cotações recusaram a viagem). O `pedidos-service` consome e **não** cancela o pedido, porque a venda já foi concluída (ESP-PED-001, RN-22). Na mesma transação, a logística abre uma nova rodada de cotação para o mesmo pedido: outra `solicitacao_frete_criada`, com `rodada` + 1 e a `tentativa` recomeçando em 1 (D27).
 
 **Por que tópicos novos:** o pedido só muda de status hoje por `PATCH` HTTP no `pedidos-service`, o que vai contra a regra do guia de não avançar o fluxo por chamada síncrona. E `pedido_atualizado` pertence ao `pedidos-service`, então não podemos publicar nele.
 
@@ -204,12 +206,12 @@ Só os nossos dois serviços usam. O `transportadoras-service` grava o ajuste na
 
 | Grupo | Pedido | Prioridade |
 |---|---|---|
-| **Mercado, Negociação e Pedidos** | Tudo o que está em [`contratos/proposta-grupo-pedidos.md`](contratos/proposta-grupo-pedidos.md): campos no `pedido_criado`, consumo de `frete_selecionado` (inclusive a troca de transportadora), `entrega_concluida` e `frete_indisponivel` | Alta |
+| **Mercado, Negociação e Pedidos** | Tudo o que está em [`contratos/proposta-grupo-pedidos.md`](contratos/proposta-grupo-pedidos.md): campos no `pedido_criado`, consumo de `frete_selecionado` (inclusive a troca de transportadora), `entrega_concluida` e `frete_indisponivel`, e, desde 14/11/2026, o evento do fechamento do leilão com `compradorId` e `destino` (D26) | Alta |
 | **Fornecimento e Produtos** | ✅ Respondido e incorporado por eles em 10/11/2026 (contrato de eventos 1.1 e 1.2): P-06 e P-27 resolvidas, `origem` do `fornecimento_criado` em `{cidade, uf}` e `pesoUnitarioKg` opcional no produto. Eles também pediram ao grupo de Pedidos que o `pedido_criado` leve `tipoTransporte`, `origem` e `pesoKg` (KG; TON × 1000; demais unidades × `pesoUnitarioKg`). Falta avisá-los de que já usamos RS256 (o documento deles ainda diz HS256) | Baixa |
 | **Autenticação** | `empresa_cadastrada` passou a camelCase em 10/11/2026 (`tenantId`, `groupId`, `cnpj`, `legalName`, `branchType`, `geoLat`, `geoLng`, `scopes`): o tipo da empresa vem em `scopes` (`CARRIER`) e a localização em `geoLat`/`geoLng`, mas sem cidade e UF (issue #2 de Fornecimento e Produtos) | Média |
 | | ✅ Administrador do módulo: o Identity-Service tem `platform_role` `PLATFORM_ADMIN` no token (código e seed, 10/11/2026); passamos a usar esse claim, e `TENANT_ADMIN` continua administrando só a empresa | — |
 | **Turma (formato de erro)** | A Autenticação propôs `code` (ex.: `ERR-AUTH-001`) e `correlationId`, sem `instance` e `timestamp`; nós e Produtos usamos `codigo`, `correlationId`, `instance` e `timestamp`. Produtos mantém `codigo` até haver consenso. Se mudar, mudam o `comum/erros.py`, os testes e as duas ESPs | Média |
-| **Compra e Demanda** | Se o destino vier da demanda, incluir cidade e UF de entrega em `demanda_criada` para chegar até o pedido | Média |
+| **Compra e Demanda** | ✅ O `demanda_criada` (repositório `LuccaStuart/portal-b2b-compra-demanda`, commit `f7cdf10`, 12/11/2026) já traz `destino` `{cidade, uf}`. Falta o grupo de Pedidos levá-lo até o pedido (no `pedido_criado` ou no fechamento do leilão) | Baixa |
 | **Infraestrutura** | Criar `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` no `init_topics.sh` e no `CONTRACTS.md` | Alta |
 | | Registrar `transportadoras-service` como consumidor de `frete_selecionado` e de `pedido_atualizado` | Média |
 | | Correções do kit listadas na [análise](04-analise-do-kit.md) | Alta |

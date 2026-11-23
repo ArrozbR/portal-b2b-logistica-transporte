@@ -192,8 +192,8 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 
 | Tipo | Onde | Quantidade | Resultado |
 |---|---|---|---|
-| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs, token, retentativas e DLT, pedido de teste) | `comum/tests`, `services/*/tests` | 132 | Todos passam |
-| Integração (contra Redpanda e PostgreSQL de verdade, conferindo banco e tópicos) | `testes_integracao/` | 6 | Todos passam, com o token RS256 (≈ 2 min 45 s) |
+| Unitários (regras puras: escolha, selos, motor de cotação, simulação, relógio, geografia, contratos, PDFs, token, retentativas e DLT, pedido de teste, pedido de leilão) | `comum/tests`, `services/*/tests` | 142 | Todos passam |
+| Integração (contra Redpanda e PostgreSQL de verdade, conferindo banco e tópicos) | `testes_integracao/` | 9 | Todos passam, com o token RS256 (≈ 3 min) |
 | Carga (k6) | `testes_carga/leitura.js`, `testes_carga/escrita.js` | 2 cenários | Passaram (seção 11.3) |
 
 ```bash
@@ -252,7 +252,7 @@ Além dos testes automatizados, cada etapa foi validada no ambiente com um rotei
 
 ### 11.5 Especificações para o grupo de Teste e Qualidade
 
-As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (19 requisitos funcionais, 82 critérios de aceitação, todas as 18 rotas do serviço) e [ESP-TRP-001](especificacoes/ESP-TRP-001_Transportadoras.md) (13 requisitos funcionais, 42 critérios) seguem o modelo ERS-LLM v1.2 do QA. Elas descrevem o código como ele é: os exemplos de resposta e de erro foram capturados do ambiente, e os valores de cotação, distância, datas e sorteio foram calculados pelas mesmas funções do código. Os critérios mais específicos (escolha e replay, cancelamento, DLT com 3 retentativas, Redpanda fora do ar, sorteio do motorista, parada, atraso e entrega da viagem) foram conferidos no ambiente. Escrever as especificações revelou quatro defeitos, corrigidos e cobertos por teste (ver a [explicação 07](explicacoes/07-especificacoes-ers-llm.md)). A versão 1.2 da ESP-LOG-001 acrescentou notificações, ocorrências e documentos e revelou um quinto: uma ocorrência só com espaços era gravada vazia ([explicação 09](explicacoes/09-pedido-de-teste-e-carga-de-escrita.md)).
+As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 requisitos funcionais, 86 critérios de aceitação, todas as 18 rotas do serviço) e [ESP-TRP-001](especificacoes/ESP-TRP-001_Transportadoras.md) (13 requisitos funcionais, 42 critérios) seguem o modelo ERS-LLM v1.2 do QA. Elas descrevem o código como ele é: os exemplos de resposta e de erro foram capturados do ambiente, e os valores de cotação, distância, datas e sorteio foram calculados pelas mesmas funções do código. Os critérios mais específicos (escolha e replay, cancelamento, DLT com 3 retentativas, Redpanda fora do ar, sorteio do motorista, parada, atraso e entrega da viagem) foram conferidos no ambiente. Escrever as especificações revelou quatro defeitos, corrigidos e cobertos por teste (ver a [explicação 07](explicacoes/07-especificacoes-ers-llm.md)). A versão 1.2 da ESP-LOG-001 acrescentou notificações, ocorrências e documentos e revelou um quinto: uma ocorrência só com espaços era gravada vazia ([explicação 09](explicacoes/09-pedido-de-teste-e-carga-de-escrita.md)).
 
 ## 12. Registro de decisões (ADRs)
 
@@ -451,11 +451,26 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (19 r
 - **Alternativas:** esperar o kit mudar (o login real não funcionaria); tratar `TENANT_ADMIN` como admin (o administrador de uma empresa veria as entregas de todas e mexeria no relógio).
 - **Consequências:** nenhum serviço consegue forjar token; o portal entra com o mesmo token dos outros grupos. Revisado em 10/11/2026 com o código do Identity-Service: a primeira versão não conferia `aud`, e o PyJWT recusa um token com `aud` quando a audiência esperada não é informada, então todo token real seria recusado com 401 ([explicação 08](explicacoes/08-token-do-identity-service.md)).
 
+### ADR-027: Frete só depois do fechamento do leilão
+
+- **Contexto:** o professor definiu em 12/11/2026 que o pedido nasce na abertura do leilão e que o comprador só é definido no fechamento. O `pedido_criado` de um leilão chega sem `compradorId` e, como o destino é o local do comprador, sem `destino`. O nosso contrato exigia os dois, e o pedido iria para a DLT.
+- **Decisão:** a solicitação de frete só abre quando o pedido tem comprador e destino (D26). Sem eles, o pedido fica em `logistica.pedido_aguardando`; o `pedido_atualizado` que traz `compradorId` ou `destino` (qualquer status, exceto `CANCELADO`) completa o pedido, com o lance vencedor por cima. Pedido e fechamento são guardados em colunas separadas, porque vêm de tópicos sem ordem garantida entre si, e a linha é travada para as duas cópias não abrirem duas solicitações.
+- **Alternativas:** cotar já na abertura do leilão (as transportadoras cotariam um frete sem destino, que talvez nunca aconteça); manter os campos obrigatórios (todo pedido de leilão iria para a DLT); ler o fechamento do tópico do leilão (`negociacao_fechada`), o que nos amarraria ao formato de mais um grupo.
+- **Consequências:** o prazo de 12 h para o comprador escolher conta a partir do fechamento. O grupo de Pedidos confirmou o formato em 19/11/2026: `VENDA_CONCLUIDA` traz o comprador e `AGUARDANDO_FRETE` traz a carga completa, com o destino; os campos se juntam e a solicitação abre no `AGUARDANDO_FRETE` ([explicação 10](explicacoes/10-pedido-de-leilao.md)).
+
+### ADR-028: Nova rodada de cotação depois do frete indisponível
+
+- **Contexto:** o grupo de Pedidos não cancela o pedido quando o frete fica indisponível, porque a venda já foi concluída e o estoque já teve baixa (ESP-PED-001, RN-22 e D-05). Eles esperam uma nova `solicitacao_frete_criada` (issue #1 do nosso repositório).
+- **Decisão:** na mesma transação do `frete_indisponivel`, a logística abre outra solicitação para o mesmo pedido, com `rodada` + 1 e a mesma carga (D27). A solicitação passa a ser única por (pedido, rodada), e a `tentativa` da entrega por solicitação.
+- **Alternativas:** manter o cancelamento (o pedido ficaria parado do lado de Pedidos); deixar uma pessoa reabrir pela tela (exigiria uma rota nova e alguém acompanhando cada pedido).
+- **Consequências:** um pedido sem transportadora possível fica tentando a cada 12 h do módulo, sem limite. A comparação, o rastreio e a tela de solicitações mostram cada rodada separada ([explicação 11](explicacoes/11-nova-rodada-e-cidades.md)).
+
 ## 13. Limitações conhecidas
 
 | Limitação | Efeito | Possível evolução |
 |---|---|---|
-| Rota em linha reta, 35 cidades com coordenadas aproximadas | O mapa não segue estradas; cidade fora da lista vai para a DLT | Rota pelo OSRM; base do IBGE |
+| Rota em linha reta, 132 cidades com coordenadas aproximadas (todas as capitais e os principais polos) | O mapa não segue estradas; cidade fora da lista vai para a DLT | Rota pelo OSRM; base do IBGE com os 5.570 municípios |
+| Pedido sem transportadora possível tenta para sempre | Uma nova rodada a cada 12 h do módulo, com notificação a cada vez (ADR-028) | Limite de rodadas combinado com o grupo de Pedidos |
 | Grupo de Pedidos ainda não integrado | O fluxo real depende do "Pedidos falso" | Fechar o contrato (ADR-011) |
 | Tópicos novos não aprovados | Não existem no kit | Aprovação da Infra (ADR-012) |
 | Migrações sem controle de versão | Só rodam com o banco vazio | Ferramenta de migração (Alembic, Flyway) |
@@ -490,7 +505,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (19 r
 
 | Grupo | Pendência |
 |---|---|
-| Mercado, Negociação e Pedidos | Responder à [proposta de contrato](contratos/proposta-grupo-pedidos.md) |
+| Mercado, Negociação e Pedidos | Proposta atendida (ESP-PED-001 v2.1). Respostas à issue #1: início da cotação no `AGUARDANDO_FRETE` (ADR-027), nova rodada no frete indisponível (ADR-028), venda concluída no fechamento |
 | Infraestrutura | Tópicos novos, consumidores novos, correções do kit, caminho das telas no gateway |
 | Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
 | Fornecimento e Produtos | Atendido em 10/11/2026: listas confirmadas, origem do fornecimento em cidade e UF e `pesoUnitarioKg` no produto. Falta só avisar que já usamos RS256 |
@@ -505,6 +520,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (19 r
 - Grupo de Fornecimento e Produtos (modelo deste relatório e itens K1 a K11): <https://github.com/davicalvarenga/Sistema-MicServ-SD>.
 - Grupo de UX/UI (mockups): <https://github.com/HugoParzival007/portal-b2b-UI-UX>.
 - Grupo de Teste e Qualidade (modelo ERS-LLM): <https://github.com/AmandaBfa/AED---Processo-e-Artefato-SD->.
+- Grupo de Mercado, Negociação e Pedidos (ESP-PED-001 e contratos): <https://github.com/brunnoalexcson/portal-b2b-mercado-negociacao-pedidos>.
 - Padrões: RFC 7807 (Problem Details), RFC 7519 (JWT), Transactional Outbox, Idempotent Consumer.
 
 ## Histórico de revisões
@@ -516,3 +532,5 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (19 r
 | 1.3 | 10/11/2026 | Token conforme o código do Identity-Service: `iss` e `aud` conferidos, admin pelo `platform_role` (ADR-026) |
 | 1.2 | 10/11/2026 | Especificações ESP-LOG-001 e ESP-TRP-001 (seção 11.5) e os quatro defeitos achados ao escrevê-las; 104 testes unitários e 6 de integração |
 | 1.4 | 10/11/2026 | Carga de escrita medida (seção 11.3); pedido de teste pela tela (ADR-023); ESP-LOG-001 1.2 com todas as rotas; 132 testes unitários |
+| 1.5 | 14/11/2026 | Pedido de leilão: o frete só abre no fechamento (ADR-027, D26); ESP-LOG-001 1.3; 142 testes unitários e 9 de integração |
+| 1.6 | 23/11/2026 | Resposta ao grupo de Pedidos: nova rodada no frete indisponível (ADR-028, D27) e fechamento confirmado (ADR-027); 132 cidades; ESP-LOG-001 1.4; 144 testes unitários e 10 de integração |

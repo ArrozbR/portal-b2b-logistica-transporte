@@ -36,7 +36,7 @@ flowchart LR
 | Controlar os prazos | Rotina periódica (D14) | Rodada de 10 s vencida sem cotação → `SEM_COTACAO` e aviso. Prazo de 12 h vencido → escolha automática ou frete indisponível |
 | Comparar cotações | `GET` da comparação | Cotações lado a lado, selos, gráfico e pontualidade de cada transportadora (D6) |
 | Escolher o frete | Comprador escolhe ou clica em "automático" (D5); ou prazo vence | Marca a vencedora, cria a entrega e publica `frete_selecionado` |
-| Trocar de transportadora | `rastreio_atualizado` do tipo `VIAGEM_RECUSADA` (D20) | Escolhe a próxima cotação pela regra do kit e publica outro `frete_selecionado`. Sem cotação restante → `frete_indisponivel` |
+| Trocar de transportadora | `rastreio_atualizado` do tipo `VIAGEM_RECUSADA` (D20) | Escolhe a próxima cotação pela regra do kit e publica outro `frete_selecionado`. Sem cotação restante → `frete_indisponivel` e nova rodada de cotação (D27) |
 | Manter a entrega e o rastreio | Consome `rastreio_atualizado` | Motorista, veículo, posição, progresso, previsão e linha do tempo |
 | Concluir a entrega | Rastreio `ENTREGA_REALIZADA` | Publica `entrega_concluida` e atualiza a pontualidade da transportadora |
 | Cancelar | Consome `pedido_atualizado` com `CANCELADO` | Cancela a solicitação ou a entrega |
@@ -101,8 +101,8 @@ Caminhos alternativos:
 | Situação | O que acontece |
 |---|---|
 | Nenhuma cotação na rodada de 10 s | Solicitação vai a `SEM_COTACAO`; comprador e fornecedor são avisados. Continua aceitando cotações |
-| Nenhuma cotação em 12 h | Logística publica `frete_indisponivel`; o grupo de Pedidos cancela o pedido |
-| Transportadora vencedora sem motorista ou veículo livre | `VIAGEM_RECUSADA`; a logística passa para a próxima cotação e avisa o comprador. Sem cotação restante → `frete_indisponivel` |
+| Nenhuma cotação em 12 h | Logística publica `frete_indisponivel` e abre uma nova rodada de cotação para o mesmo pedido; o grupo de Pedidos não cancela, porque a venda já foi concluída (D27) |
+| Transportadora vencedora sem motorista ou veículo livre | `VIAGEM_RECUSADA`; a logística passa para a próxima cotação e avisa o comprador. Sem cotação restante → `frete_indisponivel` e nova rodada (D27) |
 | Pedido cancelado | `pedido_atualizado` com `CANCELADO`; a logística cancela a solicitação ou a entrega e a transportadora libera motorista e veículo |
 
 Ponto em aberto com o grupo de Pedidos: quem move o pedido de `CRIADO` para `AGUARDANDO_FRETE`. Sugestão no [contrato](contratos/proposta-grupo-pedidos.md).
@@ -318,7 +318,7 @@ O relógio vale só para o módulo de logística. Os outros grupos continuam na 
 | Coleta realizada | ✔ | ✔ |
 | Previsão atualizada (atraso) | ✔ | |
 | Entrega realizada | ✔ | ✔ |
-| Frete indisponível (pedido será cancelado) | ✔ | ✔ |
+| Frete indisponível (nova cotação aberta, D27) | ✔ | ✔ |
 
 As notificações ficam na tabela `notificacao` da logística, gravadas na mesma transação da mudança que as gerou. A tela mostra a contagem de não lidas no sino.
 
