@@ -37,3 +37,20 @@ def test_dias_uteis_entre_e_o_inverso_de_somar():
         assert dias_uteis_entre(coleta, somar_dias_uteis(coleta, dias)) == dias
     assert dias_uteis_entre(coleta, coleta) == 0
     assert dias_uteis_entre(coleta, date(2026, 11, 15)) == 0  # só fim de semana
+
+
+@pytest.mark.parametrize("valor, aceito", [
+    ("0.01", True), ("1234.5", True), ("10000000", True),
+    ("0.004", False), ("0", False), ("1234.567", False), ("10000000.01", False),
+])
+def test_valor_da_cotacao_digitada_tem_no_maximo_duas_casas(valor, aceito):
+    # 0.004 passava, virava 0,00 na logística, violava preco > 0 e a cotação ia para a DLT.
+    from pydantic import ValidationError
+
+    from transportadoras.api import DadosCotacao
+    corpo = '{"valor": %s, "dataEntregaPrevista": "2026-12-01", "validaAte": "2026-11-30T12:00:00Z"}' % valor
+    if aceito:
+        assert str(DadosCotacao.model_validate_json(corpo).valor) == valor
+    else:
+        with pytest.raises(ValidationError):
+            DadosCotacao.model_validate_json(corpo)

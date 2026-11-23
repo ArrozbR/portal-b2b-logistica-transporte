@@ -53,7 +53,9 @@ CAMPOS_VEICULO = ("id, placa, tipo, capacidade_kg, tipos_carga, categoria_cnh_ex
 
 
 class DadosCotacao(BaseModel):
-    valor: float = Field(..., gt=0, le=10_000_000, description="Valor do frete em R$")
+    # Decimal com 2 casas: é como os dois bancos guardam (NUMERIC(12,2)). Com float, 0.004 passava,
+    # virava 0.00 na logística, violava preco > 0 e a cotação ia para a DLT sem a transportadora saber.
+    valor: Decimal = Field(..., ge=Decimal("0.01"), le=10_000_000, decimal_places=2, description="Valor do frete em R$")
     dataEntregaPrevista: date = Field(..., description="Data em que a carga chega (prazo estimado)")
     validaAte: datetime = Field(..., description="Até quando a proposta vale (hora do módulo)")
     observacoes: str | None = Field(None, max_length=500)

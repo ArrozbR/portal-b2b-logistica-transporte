@@ -130,6 +130,9 @@
     const validade = form.validade.value;
     let ok = true;
     if (!(valor > 0)) { marcarErro('c-valor', 'Informe um valor maior que zero.'); ok = false; }
+    else if (!/^\d+([.,]\d{1,2})?$/.test(form.valor.value.trim()) || valor < 0.01) {
+      marcarErro('c-valor', 'Use no máximo 2 casas decimais (centavos), a partir de R$ 0,01.'); ok = false;
+    }
     if (!entrega || entrega <= c.data_coleta_prevista) { marcarErro('c-entrega', 'A entrega precisa ser depois da data de coleta.'); ok = false; }
     if (!validade || new Date(`${validade}:00-03:00`) <= new Date(estado.horaDoModulo)) {
       marcarErro('c-validade', 'A validade precisa ser depois da hora atual do módulo.'); ok = false;
