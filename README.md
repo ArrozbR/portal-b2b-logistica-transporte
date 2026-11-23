@@ -6,10 +6,8 @@ Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuí
 
 ## Integrantes
 
-Conforme o guia do kit de infraestrutura (confirmar):
-
-- Gabriel Borges
 - Pedro Blamires
+- Gabriel Borges
 - Gabriel Rodrigues
 - Heitor Deodato
 - Jefferson Felex
