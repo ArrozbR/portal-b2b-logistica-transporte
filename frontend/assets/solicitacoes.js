@@ -33,6 +33,9 @@
           <div class="campo"><label for="p-valor">Valor da carga (R$) <span class="obrigatorio">*</span></label>
             <input id="p-valor" type="number" min="0" step="100" value="192000"></div>
         </div>
+        <div class="campo"><label><input type="checkbox" id="p-leilao"> Pedido de leilão</label>
+          <span class="ajuda">O pedido nasce sem comprador nem destino, como na abertura do leilão. A solicitação
+          de frete só abre quando o leilão fecha, 10 s depois (o destino acima é o do comprador vencedor).</span></div>
         <div id="erro-modal"></div>`,
       botoes: [{ texto: 'Cancelar' }, {
         texto: 'Criar pedido', classe: 'primario', async acao(janela) {
@@ -41,10 +44,16 @@
           const corpo = {
             origem: local(v('#p-origem')), destino: local(v('#p-destino')), tipoTransporte: v('#p-tipo'),
             pesoKg: Math.round(Number(v('#p-peso')) * 1000), produtoNome: v('#p-produto'), valorTotal: Number(v('#p-valor')),
+            leilao: janela.querySelector('#p-leilao').checked, fechamentoEmSegundos: 10,
           };
           try {
             const r = await api('/api/v1/pedidos-falso/pedidos', { metodo: 'POST', corpo });
-            avisoRapido(`Pedido ${r.pedidoId} criado. A solicitação aparece em instantes.`);
+            if (corpo.leilao) {
+              avisoRapido(`Leilão ${r.pedidoId} aberto. A solicitação aparece quando ele fechar, em ${r.fechamentoEmSegundos} s.`);
+              setTimeout(carregar, (r.fechamentoEmSegundos + 1.5) * 1000);
+            } else {
+              avisoRapido(`Pedido ${r.pedidoId} criado. A solicitação aparece em instantes.`);
+            }
             setTimeout(carregar, 1500);
             return true;
           } catch (erro) {
@@ -62,7 +71,7 @@
     COTADA: ['Escolha o frete', 'verde'],
     SEM_COTACAO: ['Sem cotação ainda', 'ambar'],
     SELECIONADA: ['Frete escolhido', 'cinza'],
-    INDISPONIVEL: ['Frete indisponível', 'vermelho'],
+    INDISPONIVEL: ['Indisponível; nova cotação aberta', 'vermelho'],
     CANCELADA: ['Cancelada', 'vermelho'],
   };
   const GRUPOS = { todas: null, escolher: ['COTADA', 'ABERTA', 'SEM_COTACAO'], escolhidas: ['SELECIONADA'] };
@@ -81,7 +90,8 @@
   function linha(s, horaDoModulo) {
     const [texto, cor] = STATUS[s.status] || [s.status, 'cinza'];
     return `<tr data-id="${escapar(s.id)}" tabindex="0">
-      <td><strong>${escapar(s.pedido_id)}</strong><br><span class="suave">aberta ${formato.curta(s.aberta_em)}</span></td>
+      <td><strong>${escapar(s.pedido_id)}</strong>${s.rodada > 1 ? ` <span class="suave">· ${Number(s.rodada)}ª cotação</span>` : ''}
+        <br><span class="suave">aberta ${formato.curta(s.aberta_em)}</span></td>
       <td><span class="rota">${escapar(s.origem_cidade)} - ${escapar(s.origem_uf)} → ${escapar(s.destino_cidade)} - ${escapar(s.destino_uf)}</span>
         <br><span class="suave">${Number(s.distancia_km).toLocaleString('pt-BR')} km</span></td>
       <td class="opcional">${escapar(s.produto_nome)}<br><span class="suave">${formato.toneladas(s.peso_kg)} · ${formato.tipoCarga(s.tipo_carga)}</span></td>

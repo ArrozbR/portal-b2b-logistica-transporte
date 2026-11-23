@@ -28,7 +28,7 @@ def texto_cotacoes_disponiveis(pedido_id: str, prazo: datetime) -> tuple[str, st
 def texto_sem_cotacao(pedido_id: str, prazo: datetime) -> tuple[str, str]:
     return ("Nenhuma transportadora cotou ainda",
             f"O pedido {pedido_id} ainda não recebeu cotação de frete. Se nenhuma transportadora cotar até "
-            f"{data_hora(prazo)}, o frete será dado como indisponível e o pedido será cancelado.")
+            f"{data_hora(prazo)}, o sistema abre uma nova cotação para o pedido.")
 
 
 def texto_frete_escolhido(pedido_id: str, transportadora: str, preco: Decimal, prazo_dias: int,
@@ -42,7 +42,7 @@ def texto_frete_escolhido(pedido_id: str, transportadora: str, preco: Decimal, p
 def texto_frete_indisponivel(pedido_id: str) -> tuple[str, str]:
     return ("Frete indisponível",
             f"Nenhuma transportadora cotou o frete do pedido {pedido_id} dentro do prazo. "
-            f"O pedido será cancelado.")
+            f"O pedido continua valendo: uma nova cotação foi aberta.")
 
 
 def texto_transportadora_trocada(pedido_id: str, recusou: str, nova: str, preco: Decimal, prazo_dias: int) -> tuple[str, str]:
@@ -54,7 +54,7 @@ def texto_transportadora_trocada(pedido_id: str, recusou: str, nova: str, preco:
 def texto_sem_transportadora(pedido_id: str) -> tuple[str, str]:
     return ("Frete indisponível",
             f"Nenhuma das transportadoras que cotaram o pedido {pedido_id} tem motorista e caminhão livres. "
-            f"O pedido será cancelado.")
+            f"O pedido continua valendo: uma nova cotação foi aberta.")
 
 
 def texto_motorista_escalado(pedido_id: str, motorista: str, placa: str, coleta: datetime) -> tuple[str, str]:

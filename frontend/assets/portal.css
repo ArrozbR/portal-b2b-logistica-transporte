@@ -269,6 +269,7 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 }
 .campo input:focus, .campo select:focus, .campo textarea:focus { outline: 2px solid var(--verde); outline-offset: 0; border-color: var(--verde); }
 .campo textarea { min-height: 90px; resize: vertical; }
+.campo input[type="checkbox"] { width: auto; padding: 0; margin-right: 6px; vertical-align: middle; accent-color: var(--verde); }
 .campo .ajuda { font-size: 12px; color: var(--texto-suave); }
 .campo .com-prefixo { display: flex; }
 .campo .com-prefixo span { display: grid; place-items: center; padding: 0 12px; background: var(--fundo); border: 1px solid #d1d5db; border-right: 0; border-radius: 10px 0 0 10px; color: var(--texto-suave); }

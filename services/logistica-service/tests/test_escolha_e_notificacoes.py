@@ -59,8 +59,10 @@ def test_textos_das_notificacoes():
     assert titulo == "Cotações de frete disponíveis"
     assert "ped-1" in mensagem and "10/11/2026 09:00" in mensagem
 
-    assert "será cancelado" in texto_sem_cotacao("ped-1", PRAZO)[1]
-    assert "será cancelado" in texto_frete_indisponivel("ped-1")[1]
+    # Frete indisponível não cancela o pedido (D27): abre uma nova cotação.
+    assert "nova cotação" in texto_sem_cotacao("ped-1", PRAZO)[1]
+    assert "nova cotação" in texto_frete_indisponivel("ped-1")[1]
+    assert "cancelado" not in texto_frete_indisponivel("ped-1")[1]
 
     _, automatico = texto_frete_escolhido("ped-1", "Econômica Transportes", Decimal("6156.86"), 8, automatico=True)
     assert "regra automática" in automatico and "R$ 6.156,86" in automatico and "8 dias úteis" in automatico

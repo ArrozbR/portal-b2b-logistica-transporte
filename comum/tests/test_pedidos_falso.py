@@ -129,7 +129,40 @@ def test_cancelamento_publica_pedido_atualizado(produtor, cliente):
     assert erros_do_payload("pedido_atualizado", envelope["payload"]) == []
 
 
+def test_pedido_de_leilao_nasce_sem_comprador_e_agenda_o_fechamento(produtor, cliente, monkeypatch):
+    agendados = []
+
+    async def fechar_depois(pedido_id, fechamento, segundos, correlation_id):
+        agendados.append((pedido_id, fechamento, segundos, correlation_id))
+
+    monkeypatch.setattr(pedidos_falso, "_fechar_depois", fechar_depois)
+    r = cliente.post("/api/v1/pedidos-falso/pedidos", headers=ADMIN, json={
+        "origem": {"cidade": "Sorriso", "uf": "MT"}, "destino": {"cidade": "Santos", "uf": "SP"},
+        "pedidoId": "ped-leilao-1", "leilao": True, "fechamentoEmSegundos": 3})
+    assert r.status_code == 202 and r.json()["fechamentoEmSegundos"] == 3
+    payload = produtor.enviados[0][2]["payload"]
+    assert payload["compradorId"] is None and payload["destino"] is None
+    assert erros_do_payload("pedido_criado", payload) == []
+    assert agendados == [("ped-leilao-1", {"compradorId": "emp-comprador-1", "destino": {"cidade": "Santos", "uf": "SP"}},
+                          3, r.json()["correlationId"])]
+
+
+def test_fechamento_do_leilao_publica_comprador_e_destino(produtor, cliente):
+    r = cliente.post("/api/v1/pedidos-falso/pedidos/ped-leilao-2/fechamento", headers=ADMIN,
+                     json={"compradorId": "emp-comprador-1", "destino": {"cidade": "santos", "uf": "sp"},
+                           "valorTotal": 195000})
+    assert r.status_code == 202
+    topico, chave, envelope = produtor.enviados[0]
+    assert (topico, chave) == ("pedido_atualizado", "ped-leilao-2")
+    assert envelope["payload"]["destino"] == {"cidade": "Santos", "uf": "SP"}
+    assert envelope["payload"]["valorTotal"] == 195000
+    assert erros_do_payload("pedido_atualizado", envelope["payload"]) == []
+    r = cliente.post("/api/v1/pedidos-falso/pedidos/ped-leilao-2/fechamento", headers=COMPRADOR,
+                     json={"destino": {"cidade": "Santos", "uf": "SP"}})
+    assert r.status_code == 403
+
+
 def test_lista_de_cidades_e_a_da_simulacao(produtor, cliente):
     r = cliente.get("/api/v1/pedidos-falso/cidades", headers=ADMIN)
     assert r.status_code == 200
-    assert {"cidade": "Jataí", "uf": "GO"} in r.json() and len(r.json()) == 35
+    assert {"cidade": "Jataí", "uf": "GO"} in r.json() and {"cidade": "Anápolis", "uf": "GO"} in r.json() and len(r.json()) == 132

@@ -35,7 +35,7 @@ CAMPOS_SOLICITACAO = """
     id, pedido_id, produto_id, produto_nome, valor_carga, comprador_id, fornecedor_id, tipo_carga, peso_kg,
     origem_cidade, origem_uf, origem_lat, origem_lon, destino_cidade, destino_uf, destino_lat, destino_lon,
     distancia_km, data_coleta_prevista, data_entrega_desejada, aberta_em, prazo_decisao_em,
-    cotacao_escolhida_id, criterio, escolhida_por, escolhida_em, status
+    cotacao_escolhida_id, criterio, escolhida_por, escolhida_em, status, rodada
 """
 
 
@@ -342,7 +342,7 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
         async with db.transacao() as conn:
             linha = await buscar_um(conn, f"""
                 SELECT e.id FROM logistica.entrega e JOIN logistica.solicitacao_frete s ON s.id = e.solicitacao_id
-                 WHERE e.pedido_id = %s AND {condicao} ORDER BY e.tentativa DESC LIMIT 1
+                 WHERE e.pedido_id = %s AND {condicao} ORDER BY s.rodada DESC, e.tentativa DESC LIMIT 1
             """, [pedido_id, *parametros])
             if linha is None:
                 raise Problema(404, "ENTREGA_NAO_ENCONTRADA", "Entrega não encontrada",

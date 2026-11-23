@@ -21,6 +21,7 @@
     "distanciaKm": { "type": "number", "minimum": 0 },
     "dataColetaPrevista": { "type": "string", "format": "date" },
     "prazoDecisaoEm": { "type": "string", "format": "date-time" },
+    "rodada": { "type": "integer", "minimum": 1, "description": "1 na primeira solicitação do pedido; +1 a cada nova cotação depois do frete indisponível (D27)" },
     "status": { "const": "ABERTA" }
   },
   "$defs": {

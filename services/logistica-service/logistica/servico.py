@@ -8,7 +8,8 @@ Fluxo:
     rodada de 10 s sem cotação ──► SEM_COTACAO (avisa comprador e fornecedor)
     comprador escolhe, clica em "automático" ou o prazo de 12 h vence
         ──► escolher ──► frete_selecionado
-    prazo de 12 h vence sem cotação ──► frete_indisponivel
+    prazo de 12 h vence sem cotação, ou ninguém tem frota ──► frete_indisponivel
+        ──► nova rodada: outra solicitação para o mesmo pedido (D27; o pedido não é cancelado)
     pedido_atualizado CANCELADO ──► cancelar_pedido (atualizar_pedido decide entre os dois casos)
     administrador ajusta o relógio ──► relogio_ajustado
 
@@ -133,8 +134,12 @@ class Logistica:
         await conn.execute("DELETE FROM logistica.pedido_aguardando WHERE pedido_id = %s", (pedido_id,))
         return await self._abrir(conn, dados, cid)
 
-    async def _abrir(self, conn: AsyncConnection, pedido: dict, correlation_id: str | None) -> str | None:
-        """Abre a solicitação de frete de um pedido que já tem comprador e destino."""
+    async def _abrir(self, conn: AsyncConnection, pedido: dict, correlation_id: str | None,
+                     rodada: int = 1) -> str | None:
+        """Abre a solicitação de frete de um pedido que já tem comprador e destino.
+
+        `rodada` 1 é a primeira solicitação do pedido; as seguintes vêm do frete indisponível (D27).
+        """
         origem = buscar_cidade(pedido["origem"]["cidade"], pedido["origem"]["uf"])
         destino = buscar_cidade(pedido["destino"]["cidade"], pedido["destino"]["uf"])
         if origem is None:
@@ -155,21 +160,23 @@ class Logistica:
                 tipo_carga, peso_kg, origem_cidade, origem_uf, origem_lat, origem_lon,
                 destino_cidade, destino_uf, destino_lat, destino_lon, distancia_km,
                 data_coleta_prevista, data_entrega_desejada, aberta_em, rodada_ate, prazo_decisao_em,
-                status, correlation_id)
+                status, correlation_id, rodada)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, 'ABERTA', %s)
-            ON CONFLICT (pedido_id) DO NOTHING
+                    %s, %s, %s, %s, %s, 'ABERTA', %s, %s)
+            ON CONFLICT (pedido_id, rodada) DO NOTHING
             RETURNING id
         """, (
             solicitacao_id, pedido["pedidoId"], pedido["produtoId"], pedido["produtoNome"], pedido["valorTotal"],
             pedido["compradorId"], pedido["fornecedorId"], pedido["tipoTransporte"], pedido["pesoKg"],
             origem.nome, origem.uf, origem.lat, origem.lon, destino.nome, destino.uf, destino.lat, destino.lon,
             distancia, coleta, pedido.get("dataEntregaDesejada"), agora, rodada_ate, prazo_decisao,
-            correlation_id,
+            correlation_id, rodada,
         ))
         if criada is None:
-            # Outro evento (com outro eventId) para o mesmo pedido: não abre duas solicitações.
-            log.info("Pedido já tem solicitação de frete", extra={"dados": {"pedidoId": pedido["pedidoId"]}})
+            # Outro evento (com outro eventId) para o mesmo pedido, ou a mesma rodada aberta duas
+            # vezes: não abre duas solicitações.
+            log.info("Pedido já tem solicitação de frete nesta rodada", extra={"dados": {
+                "pedidoId": pedido["pedidoId"], "rodada": rodada}})
             return None
 
         await gravar_evento(conn, SCHEMA, SERVICO, "solicitacao_frete_criada", solicitacao_id, {
@@ -186,13 +193,25 @@ class Logistica:
             "distanciaKm": distancia,
             "dataColetaPrevista": coleta.isoformat(),
             "prazoDecisaoEm": iso(prazo_decisao),
+            "rodada": rodada,
             "status": "ABERTA",
         }, correlation_id)
         log.info("Solicitação de frete aberta", extra={"dados": {
-            "solicitacaoFreteId": solicitacao_id, "pedidoId": pedido["pedidoId"],
+            "solicitacaoFreteId": solicitacao_id, "pedidoId": pedido["pedidoId"], "rodada": rodada,
             "origem": f"{origem.nome}/{origem.uf}", "destino": f"{destino.nome}/{destino.uf}",
             "distanciaKm": distancia}})
         return solicitacao_id
+
+    async def _reabrir(self, conn: AsyncConnection, anterior: dict) -> str | None:
+        """Frete indisponível: abre a próxima rodada para o mesmo pedido (D27).
+
+        O grupo de Pedidos não cancela o pedido nesse caso (a venda já foi concluída e o
+        estoque já teve baixa; ESP-PED-001, RN-22 e D-05): ele espera uma nova
+        `solicitacao_frete_criada`. A carga é a mesma; prazos, coleta e rodada de 10 s
+        recomeçam agora. Roda na mesma transação do `frete_indisponivel`.
+        """
+        pedido = pedido_da_solicitacao(anterior)
+        return await self._abrir(conn, pedido, anterior["correlation_id"], rodada=anterior["rodada"] + 1)
 
     # ------------------------------------------------------------------ cotacao_recebida
     async def registrar_cotacao(self, conn: AsyncConnection, envelope: dict) -> str:
@@ -367,6 +386,7 @@ class Logistica:
                     await notificar(conn, empresa_id=empresa_id, papel=papel, tipo="FRETE_INDISPONIVEL",
                                     texto=texto_sem_transportadora(solicitacao["pedido_id"]),
                                     pedido_id=solicitacao["pedido_id"], solicitacao_id=solicitacao["id"], agora=agora)
+                await self._reabrir(conn, solicitacao)
             return "indisponivel"
 
         candidatas = [CotacaoCandidata(l["id"], l["transportadora_id"], l["preco"], l["prazo_dias"]) for l in linhas]
@@ -430,8 +450,9 @@ class Logistica:
         if novo_status == "CANCELADO":
             return await self.cancelar_pedido(conn, dados["pedidoId"])
 
-        # O nome do status do fechamento ainda não foi definido pelo grupo de Pedidos (Q-13 da
-        # ESP-LOG-001): vale qualquer status que traga o comprador ou o destino.
+        # O grupo de Pedidos manda o comprador no VENDA_CONCLUIDA e a carga completa, com o destino,
+        # no AGUARDANDO_FRETE (ESP-PED-001 v2.1, D-03). Vale qualquer status que traga o comprador
+        # ou o destino: os campos se juntam até ter os dois (Q-13 da ESP-LOG-001).
         fechamento = dados_do_fechamento(dados)
         if not (fechamento.get("compradorId") or fechamento.get("destino")):
             return "ignorado"  # outras mudanças de status do pedido não afetam a logística
@@ -449,9 +470,11 @@ class Logistica:
         # Pedido de leilão que ainda esperava o fechamento: não espera mais.
         await conn.execute("DELETE FROM logistica.pedido_aguardando WHERE pedido_id = %s", (pedido_id,))
 
-        solicitacao = await buscar_um(
-            conn, "SELECT id, status FROM logistica.solicitacao_frete WHERE pedido_id = %s FOR UPDATE",
-            (pedido_id,))
+        # Com o frete indisponível, o pedido pode ter várias rodadas (D27): vale a mais recente.
+        solicitacao = await buscar_um(conn, """
+            SELECT id, status FROM logistica.solicitacao_frete WHERE pedido_id = %s
+             ORDER BY rodada DESC LIMIT 1 FOR UPDATE
+        """, (pedido_id,))
         if solicitacao is None:
             # O cancelamento chegou antes do pedido_criado (tópicos diferentes não têm ordem
             # garantida entre si). Guarda para não abrir a solicitação quando o pedido chegar.
@@ -539,7 +562,7 @@ class Logistica:
     async def _encerrar_proxima_sem_cotacao(self, db: BancoDeDados, agora: datetime) -> bool:
         async with db.transacao() as conn:
             linha = await buscar_um(conn, """
-                SELECT id, pedido_id, comprador_id, fornecedor_id, correlation_id FROM logistica.solicitacao_frete
+                SELECT * FROM logistica.solicitacao_frete
                  WHERE status = 'SEM_COTACAO' AND prazo_decisao_em <= %s
                  ORDER BY prazo_decisao_em LIMIT 1
                  FOR UPDATE SKIP LOCKED
@@ -561,7 +584,20 @@ class Logistica:
             await notificar(conn, empresa_id=empresa_id, papel=papel, tipo="FRETE_INDISPONIVEL", texto=texto,
                             pedido_id=linha["pedido_id"], solicitacao_id=linha["id"], agora=agora)
         log.warning("Frete indisponível: prazo venceu sem cotação", extra={"dados": {
-            "solicitacaoFreteId": linha["id"], "pedidoId": linha["pedido_id"]}})
+            "solicitacaoFreteId": linha["id"], "pedidoId": linha["pedido_id"], "rodada": linha["rodada"]}})
+        await self._reabrir(conn, linha)
+
+
+def pedido_da_solicitacao(s: dict) -> dict:
+    """A carga de uma solicitação no formato do `pedido_criado`, para abrir a próxima rodada (D27)."""
+    return {
+        "pedidoId": s["pedido_id"], "produtoId": s["produto_id"], "produtoNome": s["produto_nome"],
+        "valorTotal": s["valor_carga"], "compradorId": s["comprador_id"], "fornecedorId": s["fornecedor_id"],
+        "tipoTransporte": s["tipo_carga"], "pesoKg": s["peso_kg"],
+        "origem": {"cidade": s["origem_cidade"], "uf": s["origem_uf"]},
+        "destino": {"cidade": s["destino_cidade"], "uf": s["destino_uf"]},
+        "dataEntregaDesejada": s["data_entrega_desejada"],
+    }
 
 
 def para_json(valor):
