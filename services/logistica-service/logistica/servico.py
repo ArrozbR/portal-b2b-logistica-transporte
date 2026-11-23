@@ -2,12 +2,14 @@
 
 Fluxo:
     pedido_criado ──► abrir_solicitacao ──► solicitacao_frete_criada
+        (sem comprador ou destino, pedido de leilão: fica em pedido_aguardando, D26)
+    pedido_atualizado com comprador e destino (fechamento do leilão) ──► abre a solicitação
     cotacao_recebida ──► registrar_cotacao (a primeira avisa o comprador)
     rodada de 10 s sem cotação ──► SEM_COTACAO (avisa comprador e fornecedor)
     comprador escolhe, clica em "automático" ou o prazo de 12 h vence
         ──► escolher ──► frete_selecionado
     prazo de 12 h vence sem cotação ──► frete_indisponivel
-    pedido_atualizado CANCELADO ──► cancelar_pedido
+    pedido_atualizado CANCELADO ──► cancelar_pedido (atualizar_pedido decide entre os dois casos)
     administrador ajusta o relógio ──► relogio_ajustado
 
 Todas as funções recebem a conexão `conn` já dentro de uma transação. Quem
@@ -22,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from psycopg import AsyncConnection
+from psycopg.types.json import Jsonb
 
 from comum.db import BancoDeDados, buscar_todos, buscar_um
 from comum.erros import Problema
@@ -32,6 +35,7 @@ from comum.outbox import gravar_evento
 from comum.relogio import EstadoRelogio, Relogio, gravar_estado, reajustar
 
 from . import SCHEMA, SERVICO
+from .pedidos import dados_do_fechamento, faltando_para_o_frete, mesclar
 from .notificacoes import (COMPRADOR, FORNECEDOR, notificar, texto_cotacoes_disponiveis, texto_frete_escolhido,
                            texto_frete_indisponivel, texto_sem_cotacao, texto_sem_transportadora,
                            texto_transportadora_trocada)
@@ -67,19 +71,76 @@ class Logistica:
 
     # ------------------------------------------------------------------ pedido_criado
     async def abrir_solicitacao(self, conn: AsyncConnection, envelope: dict) -> str | None:
+        """pedido_criado. Com comprador e destino, abre a solicitação; sem eles (leilão), espera o fechamento."""
         pedido = validar_payload("pedido_criado", envelope["payload"])
+        self._conferir_cidades(pedido)
+        if await self._cancelado(conn, pedido["pedidoId"]):
+            return None
+        aguardando = await buscar_um(conn, "SELECT 1 FROM logistica.pedido_aguardando WHERE pedido_id = %s",
+                                     (pedido["pedidoId"],))
+        if not aguardando and not faltando_para_o_frete(pedido):
+            return await self._abrir(conn, pedido, envelope.get("correlationId"))
+        return await self._juntar(conn, pedido["pedidoId"], pedido=pedido, correlation_id=envelope.get("correlationId"))
+
+    @staticmethod
+    def _conferir_cidades(dados: dict) -> None:
+        """Cidade fora da lista nunca vai dar certo: DLT direto, já na chegada do evento."""
+        for campo in ("origem", "destino"):
+            local = dados.get(campo)
+            if local and buscar_cidade(local["cidade"], local["uf"]) is None:
+                raise EventoInvalido(f"Cidade de {campo} desconhecida: {local}")
+
+    async def _cancelado(self, conn: AsyncConnection, pedido_id: str) -> bool:
+        if await buscar_um(conn, "SELECT 1 FROM logistica.pedido_cancelado WHERE pedido_id = %s", (pedido_id,)):
+            log.info("Pedido já tinha sido cancelado; solicitação não aberta", extra={"dados": {"pedidoId": pedido_id}})
+            return True
+        return False
+
+    async def _juntar(self, conn: AsyncConnection, pedido_id: str, *, pedido: dict | None = None,
+                      fechamento: dict | None = None, correlation_id: str | None = None) -> str | None:
+        """Guarda o pedido ou o fechamento e abre a solicitação quando os dois se completam (D26).
+
+        A linha é travada (FOR UPDATE): o pedido_criado e o pedido_atualizado vêm de tópicos
+        diferentes e podem ser consumidos ao mesmo tempo pelas duas cópias.
+        """
+        await conn.execute("""
+            INSERT INTO logistica.pedido_aguardando (pedido_id, correlation_id) VALUES (%s, %s)
+            ON CONFLICT (pedido_id) DO NOTHING
+        """, (pedido_id, correlation_id))
+        linha = await buscar_um(conn, """
+            SELECT pedido, fechamento, correlation_id FROM logistica.pedido_aguardando
+             WHERE pedido_id = %s FOR UPDATE
+        """, (pedido_id,))
+        guardado = pedido if pedido is not None else linha["pedido"]
+        juntado = mesclar(linha["fechamento"] or {}, fechamento or {})
+        # O correlationId que vale é o do pedido_criado: todo evento do pedido leva o mesmo.
+        cid = correlation_id if pedido is not None else (linha["correlation_id"] or correlation_id)
+        await conn.execute("""
+            UPDATE logistica.pedido_aguardando
+               SET pedido = %s, fechamento = %s, correlation_id = %s, atualizado_em = now()
+             WHERE pedido_id = %s
+        """, (Jsonb(guardado) if guardado is not None else None, Jsonb(juntado) if juntado else None, cid, pedido_id))
+
+        if guardado is None:
+            log.info("Fechamento chegou antes do pedido; guardado", extra={"dados": {"pedidoId": pedido_id}})
+            return "aguardando_pedido"
+        dados = mesclar(guardado, juntado)
+        faltando = faltando_para_o_frete(dados)
+        if faltando:
+            log.info("Pedido aguardando o fechamento do leilão", extra={"dados": {
+                "pedidoId": pedido_id, "faltando": faltando}})
+            return "aguardando_fechamento"
+        await conn.execute("DELETE FROM logistica.pedido_aguardando WHERE pedido_id = %s", (pedido_id,))
+        return await self._abrir(conn, dados, cid)
+
+    async def _abrir(self, conn: AsyncConnection, pedido: dict, correlation_id: str | None) -> str | None:
+        """Abre a solicitação de frete de um pedido que já tem comprador e destino."""
         origem = buscar_cidade(pedido["origem"]["cidade"], pedido["origem"]["uf"])
         destino = buscar_cidade(pedido["destino"]["cidade"], pedido["destino"]["uf"])
         if origem is None:
             raise EventoInvalido(f"Cidade de origem desconhecida: {pedido['origem']}")
         if destino is None:
             raise EventoInvalido(f"Cidade de destino desconhecida: {pedido['destino']}")
-
-        if await buscar_um(conn, "SELECT 1 FROM logistica.pedido_cancelado WHERE pedido_id = %s",
-                           (pedido["pedidoId"],)):
-            log.info("Pedido já tinha sido cancelado; solicitação não aberta",
-                     extra={"dados": {"pedidoId": pedido["pedidoId"]}})
-            return None
 
         agora = await self.relogio.agora(conn)
         solicitacao_id = str(uuid.uuid4())
@@ -104,7 +165,7 @@ class Logistica:
             pedido["compradorId"], pedido["fornecedorId"], pedido["tipoTransporte"], pedido["pesoKg"],
             origem.nome, origem.uf, origem.lat, origem.lon, destino.nome, destino.uf, destino.lat, destino.lon,
             distancia, coleta, pedido.get("dataEntregaDesejada"), agora, rodada_ate, prazo_decisao,
-            envelope.get("correlationId"),
+            correlation_id,
         ))
         if criada is None:
             # Outro evento (com outro eventId) para o mesmo pedido: não abre duas solicitações.
@@ -126,7 +187,7 @@ class Logistica:
             "dataColetaPrevista": coleta.isoformat(),
             "prazoDecisaoEm": iso(prazo_decisao),
             "status": "ABERTA",
-        }, envelope.get("correlationId"))
+        }, correlation_id)
         log.info("Solicitação de frete aberta", extra={"dados": {
             "solicitacaoFreteId": solicitacao_id, "pedidoId": pedido["pedidoId"],
             "origem": f"{origem.nome}/{origem.uf}", "destino": f"{destino.nome}/{destino.uf}",
@@ -362,13 +423,31 @@ class Logistica:
         return {l["transportadora_id"]: l["entregas_no_prazo"] / l["entregas"] for l in linhas}
 
     # ------------------------------------------------------------------ pedido_atualizado
-    async def cancelar_pedido(self, conn: AsyncConnection, envelope: dict) -> str:
-        """Pedido cancelado pelo grupo de Pedidos: encerra a solicitação ou a entrega."""
+    async def atualizar_pedido(self, conn: AsyncConnection, envelope: dict) -> str | None:
+        """pedido_atualizado: cancelamento, ou fechamento do leilão com comprador e destino (D26)."""
         dados = validar_payload("pedido_atualizado", envelope["payload"])
         novo_status = (dados.get("novoStatus") or dados.get("status") or "").upper()
-        if novo_status != "CANCELADO":
+        if novo_status == "CANCELADO":
+            return await self.cancelar_pedido(conn, dados["pedidoId"])
+
+        # O nome do status do fechamento ainda não foi definido pelo grupo de Pedidos (Q-13 da
+        # ESP-LOG-001): vale qualquer status que traga o comprador ou o destino.
+        fechamento = dados_do_fechamento(dados)
+        if not (fechamento.get("compradorId") or fechamento.get("destino")):
             return "ignorado"  # outras mudanças de status do pedido não afetam a logística
         pedido_id = dados["pedidoId"]
+        self._conferir_cidades(fechamento)
+        if await buscar_um(conn, "SELECT 1 FROM logistica.solicitacao_frete WHERE pedido_id = %s", (pedido_id,)):
+            log.info("Fechamento de pedido que já tem solicitação; ignorado", extra={"dados": {"pedidoId": pedido_id}})
+            return "ignorado"
+        if await self._cancelado(conn, pedido_id):
+            return "ignorado"
+        return await self._juntar(conn, pedido_id, fechamento=fechamento, correlation_id=envelope.get("correlationId"))
+
+    async def cancelar_pedido(self, conn: AsyncConnection, pedido_id: str) -> str:
+        """Pedido cancelado pelo grupo de Pedidos: encerra a solicitação ou a entrega."""
+        # Pedido de leilão que ainda esperava o fechamento: não espera mais.
+        await conn.execute("DELETE FROM logistica.pedido_aguardando WHERE pedido_id = %s", (pedido_id,))
 
         solicitacao = await buscar_um(
             conn, "SELECT id, status FROM logistica.solicitacao_frete WHERE pedido_id = %s FOR UPDATE",

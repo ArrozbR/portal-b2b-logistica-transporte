@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "pedido_atualizado",
   "title": "pedido_atualizado (publicado pelo grupo de Pedidos)",
-  "description": "O boilerplate do kit usa novoStatus; aceitamos também status. Só o pedidoId e o novo status são usados.",
+  "description": "O boilerplate do kit usa novoStatus; aceitamos também status. CANCELADO encerra a solicitação ou a entrega. Qualquer outro status que traga compradorId ou destino é o fechamento do leilão (D26): o nome desse status ainda não foi definido pelo grupo de Pedidos. Os outros status são ignorados.",
   "type": "object",
   "required": ["pedidoId"],
   "anyOf": [
@@ -13,6 +13,22 @@
     "pedidoId": { "type": "string", "minLength": 1 },
     "statusAnterior": { "type": ["string", "null"] },
     "novoStatus": { "type": "string", "minLength": 1 },
-    "status": { "type": "string", "minLength": 1 }
+    "status": { "type": "string", "minLength": 1 },
+    "compradorId": { "type": ["string", "null"], "minLength": 1, "description": "Comprador definido no fechamento do leilão" },
+    "destino": { "anyOf": [{ "$ref": "#/$defs/local" }, { "type": "null" }], "description": "Local do comprador, definido no fechamento" },
+    "quantidade": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+    "pesoKg": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+    "valorTotal": { "type": ["number", "null"], "minimum": 0, "description": "Valor do lance vencedor" },
+    "dataEntregaDesejada": { "type": ["string", "null"], "format": "date" }
+  },
+  "$defs": {
+    "local": {
+      "type": "object",
+      "required": ["cidade", "uf"],
+      "properties": {
+        "cidade": { "type": "string", "minLength": 1 },
+        "uf": { "type": "string", "pattern": "^[A-Z]{2}$" }
+      }
+    }
   }
 }

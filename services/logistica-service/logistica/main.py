@@ -46,7 +46,7 @@ consumidor = ConsumidorIdempotente(
     tratadores={
         "pedido_criado": logistica.abrir_solicitacao,
         "cotacao_recebida": logistica.registrar_cotacao,
-        "pedido_atualizado": logistica.cancelar_pedido,
+        "pedido_atualizado": logistica.atualizar_pedido,
         "rastreio_atualizado": rastreio.registrar_rastreio,
     },
 )

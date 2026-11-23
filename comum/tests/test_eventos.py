@@ -42,7 +42,9 @@ def test_campos_extras_sao_aceitos():
 
 
 @pytest.mark.parametrize("mudanca", [
-    {"destino": None},
+    {"destino": {"cidade": "Santos"}},
+    {"compradorId": ""},
+    {"origem": None},
     {"tipoTransporte": "LIQUIDO"},
     {"pesoKg": 0},
     {"origem": {"cidade": "Sorriso", "uf": "mt"}},
@@ -50,6 +52,21 @@ def test_campos_extras_sao_aceitos():
 def test_pedido_fora_do_contrato(mudanca):
     with pytest.raises(EventoInvalido, match="fora do contrato"):
         validar_payload("pedido_criado", pedido_valido(**mudanca))
+
+
+def test_pedido_de_leilao_sem_comprador_nem_destino_passa_no_contrato():
+    # O pedido nasce na abertura do leilão; comprador e destino só no fechamento (D26).
+    assert erros_do_payload("pedido_criado", pedido_valido(compradorId=None, destino=None)) == []
+    sem_campos = pedido_valido()
+    del sem_campos["compradorId"], sem_campos["destino"]
+    assert erros_do_payload("pedido_criado", sem_campos) == []
+
+
+def test_fechamento_do_leilao_no_pedido_atualizado():
+    fechamento = {"pedidoId": "ped-1", "statusAnterior": "CRIADO", "novoStatus": "LEILAO_FECHADO",
+                  "compradorId": "emp-12", "destino": {"cidade": "Santos", "uf": "SP"}, "valorTotal": 195000.0}
+    assert erros_do_payload("pedido_atualizado", fechamento) == []
+    assert erros_do_payload("pedido_atualizado", {**fechamento, "destino": {"cidade": "Santos", "uf": "sp"}})
 
 
 def viagem_alocada(**mudancas) -> dict:
