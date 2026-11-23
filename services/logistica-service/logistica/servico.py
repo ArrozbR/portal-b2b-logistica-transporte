@@ -259,10 +259,11 @@ class Logistica:
 
     # ------------------------------------------------------------------ escolha do frete
     async def escolher(self, conn: AsyncConnection, solicitacao_id: str, cotacao_id: str | None,
-                       criterio: str, escolhida_por: str | None = None) -> dict:
+                       criterio: str, escolhida_por: str | None = None, pelo_comprador: bool = False) -> dict:
         """Escolhe o frete. Sem `cotacao_id`, aplica a regra automática.
 
-        `escolhida_por` é o usuário que escolheu (None = rotina de prazos).
+        `escolhida_por` é o usuário que escolheu (None = rotina de prazos); `pelo_comprador`
+        diz se foi o próprio comprador (aí ele não precisa ser avisado).
 
         Garantia de escolha única (arquitetura, seção 11.1): a gravação só muda
         o status se ele ainda for COTADA. Quem chegar depois recebe 409.
@@ -310,7 +311,7 @@ class Logistica:
                                       or vencedora["transportadora_id"], vencedora["preco"],
                                       vencedora["prazo_dias"], automatico=criterio == AUTOMATICO)
         destinatarios = [(solicitacao["fornecedor_id"], FORNECEDOR)]
-        if escolhida_por is None:  # o comprador não clicou: precisa ser avisado
+        if not pelo_comprador:  # rotina de prazos ou administrador: o comprador precisa ser avisado
             destinatarios.append((solicitacao["comprador_id"], COMPRADOR))
         for empresa_id, papel in destinatarios:
             await notificar(conn, empresa_id=empresa_id, papel=papel, tipo="FRETE_ESCOLHIDO", texto=texto,

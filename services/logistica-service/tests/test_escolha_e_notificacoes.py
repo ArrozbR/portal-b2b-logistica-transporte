@@ -68,3 +68,13 @@ def test_textos_das_notificacoes():
     assert "regra automática" in automatico and "R$ 6.156,86" in automatico and "8 dias úteis" in automatico
     _, manual = texto_frete_escolhido("ped-1", "Expressa", Decimal("9026.18"), 4, automatico=False)
     assert "pelo comprador" in manual
+
+
+def test_chave_de_idempotencia_tem_tamanho_fixo_e_inclui_a_solicitacao():
+    from logistica.api import chave_de_idempotencia
+
+    usuario = "019a0000-0000-7000-8000-000000000001"          # id do Identity-Service (UUID)
+    longa = chave_de_idempotencia(usuario, "sol-1", "k" * 100)
+    assert len(longa) == 64                                    # cabe em VARCHAR(128); antes passava e dava 500
+    assert chave_de_idempotencia(usuario, "sol-1", "k") != chave_de_idempotencia(usuario, "sol-2", "k")
+    assert chave_de_idempotencia(usuario, "sol-1", "k") == chave_de_idempotencia(usuario, "sol-1", "k")

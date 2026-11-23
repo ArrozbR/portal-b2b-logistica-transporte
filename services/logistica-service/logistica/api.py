@@ -7,6 +7,8 @@
 - Relógio do módulo (D18).
 """
 
+import hashlib
+import json
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -106,6 +108,18 @@ def _filtro_de_visibilidade(usuario: Usuario) -> tuple[str, list]:
     return "TRUE", []
 
 
+def chave_de_idempotencia(usuario_id: str, solicitacao_id: str, idempotency_key: str) -> str:
+    """Chave gravada em idempotency_keys (VARCHAR(128)): resumo SHA-256, sempre com 64 caracteres.
+
+    - A solicitação entra na chave: a mesma Idempotency-Key em outra solicitação é outra
+      requisição (antes, devolvia em silêncio a resposta da primeira solicitação).
+    - O resumo tem tamanho fixo: o texto puro passava de 128 caracteres com o id de usuário do
+      Identity-Service (UUID) e uma Idempotency-Key de 100, e a escolha respondia 500.
+    """
+    texto = json.dumps(["selecionar-frete", usuario_id, solicitacao_id, idempotency_key])
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
 def _nao_encontrada(solicitacao_id: str) -> Problema:
     return Problema(404, "SOLICITACAO_NAO_ENCONTRADA", "Solicitação não encontrada",
                     f"Não existe solicitação de frete {solicitacao_id} visível para você.")
@@ -179,7 +193,7 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
         if not idempotency_key:
             raise Problema(400, "IDEMPOTENCY_KEY_AUSENTE", "Cabeçalho obrigatório",
                            "Envie o cabeçalho Idempotency-Key (por exemplo, um UUID gerado pela tela).")
-        chave = f"selecionar-frete:{usuario.id}:{idempotency_key}"
+        chave = chave_de_idempotencia(usuario.id, solicitacao_id, idempotency_key)
 
         anterior = await _resposta_guardada(db, chave)
         if anterior is not None:
@@ -193,7 +207,8 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                 if dono is None or (usuario.perfil == "comprador" and dono["comprador_id"] != usuario.empresa_id):
                     raise _nao_encontrada(solicitacao_id)
                 resposta = await logistica.escolher(conn, solicitacao_id, corpo.cotacaoId, criterio,
-                                                    escolhida_por=usuario.id)
+                                                    escolhida_por=usuario.id,
+                                                    pelo_comprador=usuario.perfil == "comprador")
                 await conn.execute(
                     "INSERT INTO logistica.idempotency_keys (key, response_payload) VALUES (%s, %s)",
                     (chave, Jsonb(resposta)))
