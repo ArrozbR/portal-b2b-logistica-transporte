@@ -25,7 +25,7 @@
       const r = await api(`/api/v1/transportadoras/ranking?size=100${tipo ? `&tipoCarga=${tipo}` : ''}`);
       document.getElementById('mensagem').innerHTML = '';
       lista.className = '';
-      lista.innerHTML = r.items.length ? `<table class="tabela"><thead><tr><th>#</th><th>Transportadora</th><th>Entregas</th>
+      lista.innerHTML = r.items.length ? `<table class="tabela estatica"><thead><tr><th>#</th><th>Transportadora</th><th>Entregas</th>
         <th>No prazo</th><th class="opcional">Atraso médio</th><th class="opcional">Preço médio</th><th>Escolhida</th></tr></thead>
         <tbody>${r.items.map(linha).join('')}</tbody></table>` : '<div class="vazio-grande">Nenhuma transportadora.</div>';
     } catch (erro) {

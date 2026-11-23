@@ -28,7 +28,7 @@
       <div class="cabecalho">
         <div><h1 id="titulo">Entrega</h1><p>Acompanhe o transporte e os eventos da entrega em tempo real.</p></div>
         <div class="acoes">
-          <button type="button" class="botao primario" id="reportar" hidden>${icone('alerta')} Reportar ocorrência</button>
+          <button type="button" class="botao secundario" id="reportar" hidden>${icone('alerta')} Reportar ocorrência</button>
         </div>
       </div>
       <div id="mensagem"></div>

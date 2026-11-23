@@ -56,7 +56,7 @@
       </div>
       <div class="preco">${formato.moeda(c.preco)}</div>
       ${c.observacoes ? `<div class="obs">“${escapar(c.observacoes)}”</div>` : ''}
-      ${podeEscolher && c.status === 'VALIDA' ? `<div class="acao"><button type="button" class="botao primario pequeno" data-escolher="${escapar(c.id)}">Escolher esta cotação</button></div>` : ''}
+      ${podeEscolher && c.status === 'VALIDA' ? `<div class="acao"><button type="button" class="botao ${c.selos.includes('RECOMENDADA_PELA_REGRA') ? 'primario' : 'secundario'} pequeno" data-escolher="${escapar(c.id)}">Escolher esta cotação</button></div>` : ''}
     </article>`;
   }
 
@@ -75,7 +75,7 @@
     const ticksY = [0, 1, 2, 3].map((i) => yMin + ((yMax - yMin) * i) / 3);
     const ticksX = [];
     for (let d = Math.ceil(xMin); d <= xMax; d += Math.max(1, Math.ceil((xMax - xMin) / 6))) ticksX.push(d);
-    const cor = (c) => (c.escolhida ? '#4d7c0f' : c.selos.includes('RECOMENDADA_PELA_REGRA') ? '#84cc16' : '#94a3b8');
+    const cor = (c) => (c.escolhida ? '#0369a1' : c.selos.includes('RECOMENDADA_PELA_REGRA') ? '#65a30d' : '#94a3b8');
     const reais = (v) => `R$ ${Math.round(v).toLocaleString('pt-BR')}`;
     return `<svg viewBox="0 0 ${L} ${A}" role="img" aria-label="Gráfico de preço por prazo das cotações">
       ${ticksY.map((v) => `<line class="grade" x1="${m.e}" x2="${L - m.d}" y1="${y(v)}" y2="${y(v)}"/>
@@ -91,8 +91,8 @@
           <text class="rotulo" x="${x(c.prazo_dias) + 11}" y="${y(Number(c.preco)) + 4}">${escapar(nome)}</text></g>`;
       }).join('')}
     </svg>
-    <div class="legenda-grafico"><span><i style="background:#84cc16"></i>Recomendada pela regra</span>
-      <span><i style="background:#4d7c0f"></i>Escolhida</span><span><i style="background:#94a3b8"></i>Outras</span>
+    <div class="legenda-grafico"><span><i style="background:#65a30d"></i>Recomendada pela regra</span>
+      <span><i style="background:#0369a1"></i>Escolhida</span><span><i style="background:#94a3b8"></i>Outras</span>
       <span>Mais embaixo = mais barata · mais à esquerda = mais rápida</span></div>`;
   }
 

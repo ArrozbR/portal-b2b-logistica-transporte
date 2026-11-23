@@ -14,15 +14,21 @@
     const quando = e.status === 'ENTREGUE'
       ? `<span class="suave">Entregue</span><br>${formato.curta(e.entregue_em)}
          ${e.no_prazo === false ? `<br><span class="pilula ambar">${Math.round(e.atraso_horas)} h de atraso</span>` : ''}`
-      : `<span class="suave">Previsão</span><br>${formato.curta(e.previsao_chegada)}`;
+      : e.status === 'CANCELADA' || e.status === 'RECUSADA' || !e.previsao_chegada
+        ? '<span class="tracinho">—</span>'
+        : `<span class="suave">Previsão</span><br>${formato.curta(e.previsao_chegada)}`;
+    const encerrada = e.status === 'CANCELADA' || e.status === 'RECUSADA';
     return `<tr data-id="${escapar(e.id)}" tabindex="0">
       <td><strong>${escapar(e.pedido_id)}</strong>${e.tentativa > 1 ? `<br><span class="suave">tentativa ${e.tentativa}</span>` : ''}</td>
       <td><span class="rota">${rota}</span><br><span class="suave">${escapar(e.produto_nome)} · ${formato.toneladas(e.peso_kg)}</span></td>
       <td class="opcional">${escapar(e.transportadora_nome || e.transportadora_id)}<br><span class="suave">${escapar(e.veiculo_placa || '')}</span></td>
       <td>${pilulaStatus(e.status)}</td>
-      <td class="opcional"><div class="barra" aria-label="Progresso"><span style="width:${Math.round(e.progresso * 100)}%"></span></div>
-        <span class="suave">${formato.porcentagem(e.progresso)}</span></td>
+      <td class="opcional">${encerrada ? '<span class="tracinho">—</span>' : `<div class="barra" role="progressbar"
+          aria-valuenow="${Math.round(e.progresso * 100)}" aria-valuemin="0" aria-valuemax="100" aria-label="Progresso">
+          <span style="width:${Math.round(e.progresso * 100)}%"></span></div>
+        <span class="suave">${formato.porcentagem(e.progresso)}</span>`}</td>
       <td>${quando}</td>
+      <td class="seta"><span class="link-acao">${encerrada ? 'Ver ›' : 'Acompanhar ›'}</span></td>
     </tr>`;
   }
 
@@ -32,17 +38,23 @@
       const r = await api('/api/v1/logistica/entregas?size=100');
       const grupo = GRUPOS[filtro];
       const itens = grupo ? r.items.filter((e) => grupo.includes(e.status)) : r.items;
+      document.querySelectorAll('#filtros button[data-filtro]').forEach((b) => {
+        const g = GRUPOS[b.dataset.filtro];
+        const n = g ? r.items.filter((e) => g.includes(e.status)).length : r.items.length;
+        let contagem = b.querySelector('.contagem');
+        if (!contagem) { contagem = document.createElement('span'); contagem.className = 'contagem'; b.appendChild(contagem); }
+        contagem.textContent = n;
+      });
       document.getElementById('mensagem').innerHTML = '';
       lista.className = '';
       if (!itens.length) {
         lista.innerHTML = `<div class="vazio-grande">Nenhuma entrega ${filtro === 'todas' ? 'ainda' : 'neste filtro'}.
-          ${filtro === 'todas' ? `<br>Para criar uma no ambiente de desenvolvimento, publique um pedido de teste e escolha o frete:<br>
-          <code>docker compose exec logistica-1 python -m comum.ferramentas.publicar_pedido_falso</code>` : ''}</div>`;
+          ${filtro === 'todas' ? '<br>A entrega aparece aqui assim que o frete de um pedido é escolhido, na tela <a href="solicitacoes.html">Solicitações de frete</a>.' : ''}</div>`;
         return;
       }
       lista.innerHTML = `<table class="tabela">
         <thead><tr><th>Pedido</th><th>Rota e carga</th><th class="opcional">Transportadora</th><th>Status</th>
-          <th class="opcional">Progresso</th><th>Chegada</th></tr></thead>
+          <th class="opcional">Progresso</th><th>Chegada</th><th><span class="sr-only">Ação</span></th></tr></thead>
         <tbody>${itens.map(linha).join('')}</tbody></table>`;
       lista.querySelectorAll('tbody tr').forEach((tr) => {
         const abrir = () => { location.href = `entrega.html?id=${encodeURIComponent(tr.dataset.id)}`; };

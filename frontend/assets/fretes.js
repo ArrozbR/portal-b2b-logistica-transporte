@@ -69,7 +69,10 @@
     const painel = document.getElementById('painel');
     const c = estado.cargas.find((x) => x.id === estado.selecionada);
     if (!c) {
-      painel.innerHTML = `<h2>Enviar cotação</h2><p>Selecione uma carga na lista para ver os detalhes e cotar.</p>`;
+      painel.innerHTML = `<h2>Enviar cotação</h2>
+        <div class="painel-vazio"><span class="icone-grande">${Portal.icone('caminhao')}</span>
+          <strong>Nenhuma carga selecionada</strong>
+          <span>Clique numa carga com a situação <b>Aceitando cotações</b> para ver os detalhes e enviar a sua proposta.</span></div>`;
       return;
     }
     const [texto, cor] = SITUACAO[c.situacao];

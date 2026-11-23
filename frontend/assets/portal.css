@@ -26,7 +26,8 @@
 html, body { margin: 0; height: 100%; }
 body {
   font-family: Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
-  font-size: 14px;
+  font-size: 15px;
+  line-height: 1.45;
   color: var(--texto);
   background: var(--fundo);
   -webkit-font-smoothing: antialiased;
@@ -35,6 +36,9 @@ a { color: inherit; }
 button { font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 svg.icone { width: 18px; height: 18px; flex: none; }
+:focus-visible { outline: 3px solid rgba(101, 163, 13, .55); outline-offset: 2px; border-radius: 8px; }
+.tabela tbody tr:focus-visible { outline-offset: -3px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 
 /* ------------------------------------------------------------ estrutura */
 .app { display: grid; grid-template-columns: var(--lateral) 1fr; min-height: 100vh; }
@@ -61,7 +65,7 @@ svg.icone { width: 18px; height: 18px; flex: none; }
   padding: 12px 28px; background: var(--cartao); border-bottom: 1px solid var(--borda);
   position: sticky; top: 0; z-index: 1000;
 }
-.conteudo { padding: 24px 28px 40px; max-width: 1440px; width: 100%; }
+.conteudo { padding: 28px 32px 48px; max-width: 1400px; width: 100%; margin: 0 auto; }
 
 /* ------------------------------------------------------------ topo: relógio, sino, usuário */
 .relogio {
@@ -83,7 +87,7 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 }
 .botao-icone:hover { background: var(--fundo); }
 .contador {
-  position: absolute; top: 4px; right: 4px; min-width: 18px; height: 18px; padding: 0 5px;
+  position: absolute; top: -2px; right: -4px; min-width: 20px; height: 20px; padding: 0 6px; box-shadow: 0 0 0 2px var(--cartao);
   border-radius: 999px; background: var(--verde); color: #fff; font-size: 11px; font-weight: 700;
   display: grid; place-items: center;
 }
@@ -120,6 +124,17 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 .acoes { display: flex; gap: 10px; }
 .botao { display: inline-flex; align-items: center; gap: 8px; border-radius: 10px; padding: 10px 16px; font-weight: 600; border: 1px solid var(--borda); background: var(--cartao); }
 .botao.primario { background: var(--verde); border-color: var(--verde); color: #1a2e05; }
+.botao { transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.botao:hover:not(:disabled) { border-color: #cbd5e1; background: #f9fafb; }
+.botao.primario:hover:not(:disabled) { background: #76b912; border-color: #76b912; }
+.botao:active:not(:disabled) { transform: translateY(1px); }
+.botao.secundario { background: var(--cartao); border-color: var(--verde); color: var(--verde-texto); }
+.botao.secundario:hover:not(:disabled) { background: var(--verde-fundo); border-color: var(--verde-escuro); }
+.botao.fantasma { background: transparent; border-color: transparent; color: var(--texto-suave); }
+.botao.fantasma:hover:not(:disabled) { background: var(--fundo); color: var(--texto); border-color: transparent; }
+.botao.fantasma.perigo { color: #b91c1c; }
+.botao.fantasma.perigo:hover:not(:disabled) { background: var(--vermelho-claro); color: #991b1b; }
+.botao svg { width: 16px; height: 16px; }
 
 .cartao { background: var(--cartao); border: 1px solid var(--borda); border-radius: var(--raio); box-shadow: var(--sombra); }
 .cartao > h2 { display: flex; align-items: center; gap: 10px; font-size: 16px; margin: 0; padding: 18px 20px 12px; }
@@ -144,15 +159,26 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 .filtros { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .filtros button { border: 1px solid var(--borda); background: var(--cartao); border-radius: 999px; padding: 7px 14px; font-weight: 500; }
 .filtros button.ativo { background: var(--verde-claro); border-color: var(--verde); color: var(--verde-texto); font-weight: 600; }
+.filtros button { transition: background-color .12s ease, border-color .12s ease; }
+.filtros button:hover:not(.ativo) { border-color: #cbd5e1; background: #f9fafb; }
+.filtros .contagem { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px;
+  border-radius: 999px; background: var(--fundo); color: var(--texto-suave); font-size: 12px; font-weight: 700; }
+.filtros button.ativo .contagem { background: var(--verde); color: #1a2e05; }
 .tabela { width: 100%; border-collapse: collapse; }
 .tabela th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-suave); font-weight: 600; padding: 12px 16px; background: #fafaf9; border-bottom: 1px solid var(--borda); }
-.tabela td { padding: 14px 16px; border-bottom: 1px solid var(--borda); vertical-align: middle; }
+.tabela td { padding: 14px 16px; border-bottom: 1px solid var(--borda); vertical-align: middle; font-size: 14px; }
+.tabela tbody tr { transition: background-color .12s ease; }
+.tabela tbody tr.requer-acao { background: #fbfef3; box-shadow: inset 3px 0 0 var(--verde); }
+.tabela td.seta { width: 1%; white-space: nowrap; text-align: right; color: var(--texto-suave); }
+.tabela tbody tr:hover td.seta { color: var(--verde-texto); }
+.link-acao { font-weight: 600; color: var(--verde-texto); white-space: nowrap; }
 .tabela tbody tr { cursor: pointer; }
 .tabela tbody tr:hover { background: var(--verde-fundo); }
 .tabela tbody tr:last-child td { border-bottom: 0; }
 .tabela .rota { font-weight: 600; }
 .tabela .suave { color: var(--texto-suave); font-size: 13px; }
-.barra { width: 120px; height: 8px; background: #f1f5f9; border-radius: 999px; overflow: hidden; }
+.tabela .tracinho { color: #9ca3af; }
+.barra { width: 120px; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
 .barra span { display: block; height: 100%; background: var(--verde); border-radius: 999px; transition: width .6s ease; }
 .vazio-grande { padding: 48px 24px; text-align: center; color: var(--texto-suave); }
 .vazio-grande code { display: inline-block; margin-top: 10px; background: var(--fundo); padding: 8px 12px; border-radius: 8px; color: var(--texto); }
@@ -246,7 +272,11 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 /* ------------------------------------------------------------ login de demonstração */
 .tela-login { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: grid; place-items: center; z-index: 2000; padding: 20px; }
 .tela-login .cartao { width: min(520px, 100%); padding: 24px; }
-.tela-login h2 { margin: 0 0 6px; font-size: 20px; }
+.tela-login h2 { margin: 0 0 6px; font-size: 22px; }
+.tela-login .cartao > h2 { padding: 0; }
+.tela-login .cartao { max-height: calc(100vh - 40px); overflow-y: auto; }
+.separador { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; color: var(--texto-suave); font-size: 13px; }
+.separador::before, .separador::after { content: ""; flex: 1; border-top: 1px solid var(--borda); }
 .tela-login p { margin: 0 0 16px; color: var(--texto-suave); line-height: 1.45; }
 .tela-login .opcoes { display: grid; gap: 8px; }
 .tela-login .opcao-usuario { border: 1px solid var(--borda); padding: 12px; }
@@ -329,11 +359,16 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 .detalhe-carga dt { color: var(--texto-suave); }
 .detalhe-carga dd { margin: 0; font-weight: 600; text-align: right; }
 .contador-caracteres { text-align: right; font-size: 12px; color: var(--texto-suave); }
+.painel-vazio { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 28px 12px 12px; color: var(--texto-suave); }
+.painel-vazio .icone-grande { width: 56px; height: 56px; border-radius: 16px; background: var(--verde-fundo); color: var(--verde-escuro); display: grid; place-items: center; }
+.painel-vazio .icone-grande svg { width: 28px; height: 28px; }
+.painel-vazio strong { color: var(--texto); }
 
 /* ------------------------------------------------------------ ranking e frota */
 .posicao { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--fundo); font-weight: 700; }
 .posicao.ouro { background: #fef3c7; color: #92400e; }
 .grade-frota { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.acoes-linha { display: flex; gap: 4px; justify-content: flex-end; }
 .cartao .cabecalho-cartao { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px 12px; }
 .cartao .cabecalho-cartao h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 10px; }
 .cartao .cabecalho-cartao h2 svg { color: var(--verde-escuro); width: 20px; height: 20px; }
@@ -349,13 +384,36 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 }
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
-  .lateral { display: none; }
+  .lateral { position: static; height: auto; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--borda);
+    display: flex; align-items: center; gap: 12px; overflow-x: auto; }
+  .lateral .marca { padding: 0 6px 0 0; font-size: 17px; flex: none; }
+  .lateral .marca svg { width: 24px; height: 24px; }
+  .menu { grid-auto-flow: column; gap: 4px; }
+  .menu a { padding: 9px 12px; white-space: nowrap; }
+  .lateral .rodape { display: none; }
+  .topo { position: static; flex-wrap: wrap; }
   .grade-rastreio, .grade-detalhes { grid-template-columns: 1fr; }
   .resumo { grid-template-columns: 1fr 1fr; }
   .conteudo, .topo { padding-left: 16px; padding-right: 16px; }
   .relogio .velocidades { display: none; }
   .tabela .opcional { display: none; }
+  .tabela td, .tabela th { padding-left: 10px; padding-right: 10px; }
   .busca { grid-template-columns: 1fr; }
   .cotacao { grid-template-columns: 1fr; }
   .cotacao .preco, .cotacao .acao { text-align: left; grid-column: 1; }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.tabela.estatica tbody tr { cursor: default; }
+.tabela.estatica tbody tr:hover { background: transparent; }
+.botao.fantasma.perigo { border-color: transparent; background: transparent; }
+.tabela th { white-space: nowrap; }
+/* celular: tabela rola dentro do cartão (a página não rola para o lado) e o menu ocupa menos espaço */
+@media (max-width: 900px) {
+  .cartao { overflow-x: auto; }
+  .lateral { scrollbar-width: none; }
+  .lateral::-webkit-scrollbar { display: none; }
+  .lateral .marca span { display: none; }
+  .topo { justify-content: space-between; padding-top: 8px; padding-bottom: 8px; }
+  .usuario small { display: none; }
+  .cabecalho h1 { font-size: 24px; }
 }

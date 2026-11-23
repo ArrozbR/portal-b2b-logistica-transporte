@@ -90,7 +90,9 @@
 
   function linha(s, horaDoModulo) {
     const [texto, cor] = STATUS[s.status] || [s.status, 'cinza'];
-    return `<tr data-id="${escapar(s.id)}" tabindex="0">
+    const pedeEscolha = s.status === 'COTADA';
+    return `<tr data-id="${escapar(s.id)}" tabindex="0" class="${pedeEscolha ? 'requer-acao' : ''}"
+        aria-label="Pedido ${escapar(s.pedido_id)}: ${pedeEscolha ? 'comparar e escolher o frete' : 'ver as cotações'}">
       <td><strong>${escapar(s.pedido_id)}</strong>${s.rodada > 1 ? ` <span class="suave">· ${Number(s.rodada)}ª cotação</span>` : ''}
         <br><span class="suave">aberta ${formato.curta(s.aberta_em)}</span></td>
       <td><span class="rota">${escapar(s.origem_cidade)} - ${escapar(s.origem_uf)} → ${escapar(s.destino_cidade)} - ${escapar(s.destino_uf)}</span>
@@ -98,6 +100,7 @@
       <td class="opcional">${escapar(s.produto_nome)}<br><span class="suave">${formato.toneladas(s.peso_kg)} · ${formato.tipoCarga(s.tipo_carga)}</span></td>
       <td><span class="pilula ${cor}">${texto}</span>${s.criterio === 'AUTOMATICO_MENOR_PRECO' ? '<br><span class="suave">regra automática</span>' : ''}</td>
       <td>${prazo(s, horaDoModulo)}</td>
+      <td class="seta">${pedeEscolha ? '<span class="botao primario pequeno">Comparar e escolher</span>' : '<span class="link-acao">Ver ›</span>'}</td>
     </tr>`;
   }
 
@@ -110,6 +113,14 @@
       ]);
       const grupo = GRUPOS[filtro];
       const itens = grupo ? r.items.filter((s) => grupo.includes(s.status)) : r.items;
+      // Quantas há em cada filtro (o comprador vê na hora quantas esperam a escolha dele).
+      document.querySelectorAll('#filtros button[data-filtro]').forEach((b) => {
+        const g = GRUPOS[b.dataset.filtro];
+        const n = g ? r.items.filter((s) => g.includes(s.status)).length : r.items.length;
+        let contagem = b.querySelector('.contagem');
+        if (!contagem) { contagem = document.createElement('span'); contagem.className = 'contagem'; b.appendChild(contagem); }
+        contagem.textContent = n;
+      });
       document.getElementById('mensagem').innerHTML = '';
       lista.className = '';
       if (!itens.length) {
@@ -119,7 +130,7 @@
         return;
       }
       lista.innerHTML = `<table class="tabela"><thead><tr><th>Pedido</th><th>Rota</th><th class="opcional">Carga</th>
-        <th>Situação</th><th>Prazo</th></tr></thead><tbody>${itens.map((s) => linha(s, relogio.horaDoModulo)).join('')}</tbody></table>`;
+        <th>Situação</th><th>Prazo</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody>${itens.map((s) => linha(s, relogio.horaDoModulo)).join('')}</tbody></table>`;
       lista.querySelectorAll('tbody tr').forEach((tr) => {
         const abrir = () => { location.href = `comparacao.html?id=${encodeURIComponent(tr.dataset.id)}`; };
         tr.addEventListener('click', abrir);

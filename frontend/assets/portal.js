@@ -9,6 +9,7 @@
  */
 const Portal = (() => {
   const ICONES = {
+    lapis: '<path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5Z"/><path d="m15 5 4 4"/>',
     folha: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
     caminhao: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
     caixa: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
@@ -145,7 +146,7 @@ const Portal = (() => {
   const MENUS = {
     transportadora: [
       ['fretes', 'fretes.html', 'lista', 'Solicitações de frete'],
-      ['frota', 'frota.html', 'usuario', 'Minha frota'],
+      ['frota', 'frota.html', 'caminhao', 'Minha frota'],
       ['transportadoras', 'transportadoras.html', 'balanca', 'Ranking'],
     ],
     outros: [
@@ -465,7 +466,7 @@ const Portal = (() => {
     const demo = await usuariosDeDemonstracao();
     if (demo.length) {
       const area = document.getElementById('demonstracao');
-      area.innerHTML = `<p class="suave">Ambiente de desenvolvimento: entre com um usuário de demonstração (senha <code>demo</code>).</p>
+      area.innerHTML = `<div class="separador">ou entre com um usuário de demonstração (senha <code>demo</code>)</div>
         <div class="opcoes">${demo.map((u) => `
           <button type="button" class="opcao-usuario" data-email="${escapar(u.email)}">
             <span class="avatar">${escapar(u.nome.split(' ').map((p) => p[0]).slice(0, 2).join(''))}</span>
