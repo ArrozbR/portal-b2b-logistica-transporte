@@ -4,7 +4,8 @@ Sobe a API e, no mesmo processo, três rotinas em segundo plano:
 
 - consumidor: lê solicitacao_frete_criada (cota), frete_selecionado (escala
   motorista e veículo), pedido_atualizado (cancela a viagem) e
-  relogio_ajustado (sincroniza o relógio do módulo);
+  relogio_ajustado (sincroniza o relógio do módulo) e empresa_cadastrada
+  (empresa com escopo CARRIER vira transportadora real, D28);
 - outbox:     publica no Kafka os eventos gravados no banco;
 - viagens:    a cada segundo, avança as viagens cuja hora do próximo passo
   chegou (cada viagem anda a cada 30 s).
@@ -45,6 +46,7 @@ consumidor = ConsumidorIdempotente(
         "frete_selecionado": transportadoras.escalar,
         "pedido_atualizado": transportadoras.cancelar_viagem,
         "relogio_ajustado": transportadoras.sincronizar_relogio,
+        "empresa_cadastrada": transportadoras.registrar_empresa,
     },
 )
 

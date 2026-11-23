@@ -5,6 +5,7 @@
     a cada 30 s              ──► avancar_viagens ──► rastreio_atualizado (coleta, posição, parada, atraso, entrega)
     pedido_atualizado        ──► cancelar_viagem (libera motorista e veículo)
     relogio_ajustado         ──► sincronizar_relogio
+    empresa_cadastrada (CARRIER) ──► registrar_empresa (transportadora real, D28)
 
 Só as transportadoras simuladas (D3) cotam sozinhas, e só se tiverem um
 motorista e um veículo livres e compatíveis com a carga (D20).
@@ -27,6 +28,7 @@ from comum.outbox import gravar_evento
 from comum.relogio import EstadoRelogio, Relogio, gravar_estado
 
 from . import SCHEMA, SERVICO
+from .empresas import REGRA_PADRAO, transportadora_da_empresa
 from .cotacao import PerfilTransportadora, RegraCotacao, atende, calcular
 from .simulacao import EstadoViagem, EventoViagem, cnh_permite, embaralhar, mascarar_cnh, passo, planejar
 
@@ -471,6 +473,34 @@ class Transportadoras:
         log.info("Relógio do módulo sincronizado" if gravou else "Ajuste de relógio antigo ignorado",
                  extra={"dados": {"versao": estado.versao, "fator": estado.fator}})
         return gravou
+
+    # ------------------------------------------------------------------ empresa_cadastrada (D28)
+    async def registrar_empresa(self, conn: AsyncConnection, envelope: dict) -> str:
+        """empresa_cadastrada do grupo de Autenticação: empresa com escopo CARRIER vira transportadora real.
+
+        A transportadora usa o `tenantId` como id e como `empresa_id`, então o usuário da
+        empresa a encontra pelo token. Um segundo evento da mesma empresa só atualiza o nome.
+        """
+        dados = transportadora_da_empresa(envelope["payload"])
+        if dados is None:
+            return "ignorada"  # empresa que não transporta
+        nova = await buscar_um(conn, """
+            INSERT INTO transportadoras.transportadora (id, empresa_id, nome, simulada, tipos_carga, ufs_atendidas)
+            VALUES (%s, %s, %s, FALSE, %s, NULL)
+            ON CONFLICT (id) DO UPDATE SET nome = EXCLUDED.nome
+            RETURNING (xmax = 0) AS inserida
+        """, (dados["id"], dados["empresa_id"], dados["nome"], dados["tipos_carga"]))
+        r = REGRA_PADRAO
+        await conn.execute("""
+            INSERT INTO transportadoras.regra_cotacao
+                (transportadora_id, preco_minimo, tarifa_km, tarifa_ton, fator_tipo_carga, km_por_dia, prazo_base_dias)
+            VALUES (%s, %s, %s, %s, '{}', %s, %s)
+            ON CONFLICT (transportadora_id) DO NOTHING
+        """, (dados["id"], r["preco_minimo"], r["tarifa_km"], r["tarifa_ton"], r["km_por_dia"], r["prazo_base_dias"]))
+        log.info("Transportadora registrada a partir do empresa_cadastrada" if nova["inserida"]
+                 else "Transportadora já existia; nome atualizado",
+                 extra={"dados": {"transportadoraId": dados["id"], "nome": dados["nome"]}})
+        return "criada" if nova["inserida"] else "atualizada"
 
 
 def para_json(valor):
