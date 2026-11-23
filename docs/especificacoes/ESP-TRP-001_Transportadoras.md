@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-TRP-001 |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `transportadoras-service`: transportadoras homologadas, frota, cotação, escala e viagem simulada. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -410,8 +410,11 @@ Envelope e validação como na ESP-LOG-001 (§7.3).
 | `frete_selecionado` | `logistica-service` | `pedidoId` | RF-08 | DLT |
 | `pedido_atualizado` | Pedidos | `pedidoId` | RF-10 | DLT |
 | `relogio_ajustado` | `logistica-service` | `"relogio"` | RF-11 | DLT |
+| `empresa_cadastrada` | Autenticação (Identity-Service) | `tenantId` | RF-14 | DLT |
 
 Os campos e exemplos de `solicitacao_frete_criada`, `frete_selecionado` e `relogio_ajustado` estão na ESP-LOG-001 (§7.4), que é a fonte da verdade desses tópicos; os de `pedido_atualizado`, na ESP-LOG-001 (§7.3). Os campos obrigatórios de `solicitacao_frete_criada` são `solicitacaoFreteId`, `pedidoId`, `tipoCarga`, `pesoKg` (> 0), `origem` e `destino` (`cidade`, `uf`, `lat` de −90 a 90, `lon` de −180 a 180), `distanciaKm` (≥ 0), `dataColetaPrevista`, `prazoDecisaoEm` e `status` (`"ABERTA"`); `produtoNome` é opcional.
+
+`empresa_cadastrada` (Identity-Service, `EventOutbox.cs`): envelope do kit com `source` `"identity-service"`; o `payload` traz `tenantId`, `groupId`, `cnpj`, `legalName`, `branchType`, `geoLat`, `geoLng`, `status`, `scopes` (lista de escopos: `BUYER`, `SUPPLIER`, `CARRIER`, `TENANT_ADMIN`) e `createdAt`, com cópia em snake_case (`tenant_id`, `legal_name`…) e cópia dos campos na raiz do envelope. Este serviço usa `scopes`, `status`, `tenantId` (ou `tenant_id`) e `legalName` (ou `legal_name`).
 
 Exemplo de `frete_selecionado` recebido (FS-1 do §8.0):
 ```json
@@ -1003,6 +1006,30 @@ Cenário: DLT do serviço
   Então entre 7 s e 15 s depois há uma mensagem em "transportadoras.dlt" com failedAtAttempt 4 e nenhuma cotação para ela
 ```
 
+### RF-14 — Transportadora real a partir do cadastro da Autenticação
+
+- **Prioridade:** Should
+- **Enunciado (EARS):** Quando um `empresa_cadastrada` válido trouxer o escopo `CARRIER` e `status` `ACTIVE`, o serviço deve registrar uma transportadora real (`simulada` false) com `id` e `empresa_id` iguais ao `tenantId` e o nome igual ao `legalName`, com a regra de cotação padrão; se a transportadora já existir, deve só atualizar o nome.
+- **Regras aplicáveis:** RN-22, RN-24
+- **Interface:** tópico `empresa_cadastrada`, API-05
+
+```gherkin
+# CA-43
+Cenário: Empresa transportadora cadastrada na Autenticação
+  Quando é publicado um empresa_cadastrada com tenantId "0190a000-0000-7000-8000-000000000099", legalName "Transportes Teste Ltda", status "ACTIVE" e scopes ["CARRIER"]
+  Então existe a transportadora "0190a000-0000-7000-8000-000000000099", com empresa_id igual, nome "Transportes Teste Ltda", simulada false, tipos_carga com os 4 tipos e regra de cotação com km_por_dia 600
+  E um usuário com token CARRIER e tenant_id "0190a000-0000-7000-8000-000000000099" recebe 200 na API-05 com esse nome
+  Quando o mesmo evento é publicado com outro eventId e legalName "Transportes Teste S.A."
+  Então a transportadora continua uma só, com o nome "Transportes Teste S.A."
+
+# CA-44
+Cenário: Empresa que não transporta, suspensa ou incompleta
+  Quando é publicado um empresa_cadastrada com scopes ["BUYER", "TENANT_ADMIN"], ou com status "SUSPENDED"
+  Então nenhuma transportadora é criada e nada vai para "transportadoras.dlt"
+  Quando é publicado um empresa_cadastrada sem scopes, ou com scopes ["CARRIER"] e sem tenantId ou sem legalName
+  Então há uma mensagem em "transportadoras.dlt" com failedAtAttempt 1
+```
+
 ## 9. Regras de negócio
 
 | ID | Regra | Exemplo concreto |
@@ -1030,6 +1057,7 @@ Cenário: DLT do serviço
 | RN-21 | Relógio: grava o estado de `relogio_ajustado` só se a `versao` for maior que a gravada; mensagem repetida ou atrasada não muda nada. | CA-34. |
 | RN-22 | Consumo: idempotente por `eventId`, com retentativas e DLT como na RN-30 da ESP-LOG-001, no tópico `transportadoras.dlt`. | CA-36. |
 | RN-23 | Requisição com erro (qualquer 4xx) não altera estado, não grava cotação nem evento. | CA-20. |
+| RN-24 | `empresa_cadastrada` (D28): empresa com `CARRIER` em `scopes` e `status` `ACTIVE` (ausente vale `ACTIVE`) vira transportadora com `id` = `empresa_id` = `tenantId` (ou `tenant_id`, até 64 caracteres), `nome` = `legalName` (ou `legal_name`) sem espaços nas pontas e até 200 caracteres, `simulada` false (cota digitando, RF-05), `tipos_carga` com os 4 tipos (o evento não informa quais cargas ela leva; só cota o que a frota comporta), `ufs_atendidas` nulo, `prob_atraso` 0.100 e regra de cotação padrão (`preco_minimo` 1000.00, `tarifa_km` 3.20, `tarifa_ton` 40.00, `km_por_dia` 600, `prazo_base_dias` 1; só o `km_por_dia` é usado, na viagem). Evento da mesma empresa com outro `eventId`: só atualiza o nome. Sem `CARRIER` ou com outro `status`: ignorado. Sem `scopes` (lista), sem `tenantId` ou sem `legalName`: DLT direto. Motoristas e veículos são cadastrados pela própria transportadora (RF-06, RF-07). | AgroLog (`CARRIER`) → transportadora real. CA-43, CA-44. |
 
 ## 10. Catálogo de erros
 
@@ -1135,6 +1163,7 @@ Cenário: CNH nos eventos
 | RF-11 | RN-21 | `relogio_ajustado`, API-07 | CA-34 |
 | RF-12 | — | API-01 a API-03 | CA-35. Sem CA de erro: rotas públicas sem entrada |
 | RF-13 | RN-22 | Todos os tópicos consumidos, `transportadoras.dlt` | CA-36 (e CA-06, CA-30, CA-34) |
+| RF-14 | RN-22, RN-24 | `empresa_cadastrada`, API-05 | CA-43, CA-44 |
 | RNF-01 a RNF-10 | — | Todas | CA-37 a CA-42; RNF-08 a RNF-10 por inspeção, como os CA-70 a CA-72 da ESP-LOG-001 |
 
 O CA-28 vem depois do CA-27 no RF-09 porque depende da escala. Os atributos internos da viagem (`marco_*`, `atraso_revelado`, `parada_publicada`, `proximo_passo_em`) são verificados pelo comportamento (CA-28, CA-32).
@@ -1155,6 +1184,7 @@ O CA-28 vem depois do CA-27 no RF-09 porque depende da escala. Os atributos inte
 | Q-10 | Decisão | Alteração com CNH ou placa de outro cadastro. | 409, como no cadastro. Corrigido nesta versão (antes respondia 500). |
 | Q-11 | Decisão | Ranking: transportadora com 0% no prazo fica acima das que não têm histórico. | Mantido: sem histórico vai para o fim (`NULLS LAST`). |
 | Q-12 | Decisão | Motorista com CNH vencida pode ser cadastrado. | Sim; só não é escalado nem conta como frota livre. |
+| Q-13 | Decisão (D28) | Tipos de carga e cidade-base da transportadora real. | O `empresa_cadastrada` não traz os tipos de carga; a transportadora começa com os 4 e cota só o que a frota comporta. A cidade não é necessária: a transportadora real cota digitando. **Pedido à Autenticação** (issue no nosso repositório): incluir no evento o que a empresa transporta. |
 
 ### 13.1 Casos de borda obrigatórios
 
@@ -1191,6 +1221,7 @@ O CA-28 vem depois do CA-27 no RF-09 porque depende da escala. Os atributos inte
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.2 | 2026-11-23 | Grupo 5 | Transportadora real criada a partir do `empresa_cadastrada` da Autenticação (D28; RF-14, RN-24, CA-43, CA-44, Q-13, §7.3). |
 | 1.1 | 2026-11-10 | Grupo 5 | Token conforme o código do Identity-Service, como na ESP-LOG-001 1.1 (§7.1). |
 | 1.0 | 2026-11-10 | Grupo 5 | Criação, a partir do serviço implementado e de respostas reais do ambiente. Corrigidos no código ao escrever: alteração de motorista ou veículo com CNH ou placa duplicada (500 → 409) e situação da carga de pedido cancelado ("VENCEU" → "CANCELADA"). |
 

@@ -73,7 +73,7 @@ flowchart LR
 
 O repositório tem um ambiente de desenvolvimento próprio (`docker-compose.yml`): Postgres, Redpanda, Redpanda Console, as **duas cópias** de cada serviço (como no kit) e o portal com as telas. As portas não conflitam com as do kit. É preciso ter o Docker Desktop aberto.
 
-**Telas:** <http://localhost:8088>. Entre com um usuário de demonstração:
+**Telas:** <http://localhost:8088>. O login é o do serviço de Autenticação (e-mail, senha e escolha da empresa e do perfil). No desenvolvimento, o `usuarios-falso` faz esse papel; os usuários de demonstração aparecem na tela de login, todos com a senha `demo`:
 
 | Usuário | Perfil | O que ver |
 |---|---|---|
@@ -107,6 +107,8 @@ docker compose down -v             # derruba e apaga os dados
 | PostgreSQL | localhost:15432 (banco `portal_b2b`) |
 
 Token para chamar a API: `docker compose exec logistica-1 python -m comum.ferramentas.gerar_token --perfil admin`.
+
+**Sem os falsos (D28).** Os contêineres `usuarios-falso` e `pedidos-falso` fazem o papel dos grupos de Autenticação e de Pedidos e podem ser desligados (`docker compose stop usuarios-falso pedidos-falso`): o portal continua no ar e o botão de pedido de teste some. Para usar o Identity-Service real, defina no `.env` `AUTH_URL=https://identity.matheus-alves.dev` e `AUTH_JWKS_URL=https://identity.matheus-alves.dev/.well-known/jwks.json`. Empresas com escopo `CARRIER` viram transportadoras quando o `empresa_cadastrada` delas chega pelo Kafka. O que ainda depende de outros grupos está nas [issues](https://github.com/ArrozbR/portal-b2b-logistica-transporte/issues).
 
 O contêiner `pedidos-falso` faz o papel do grupo de Pedidos (`docker compose logs -f pedidos-falso`): cria os pedidos de teste do botão do admin (publica `pedido_criado`) e reage aos nossos eventos. Para cancelar um pedido de teste: `docker compose exec logistica-1 python -m comum.ferramentas.cancelar_pedido_falso --pedido-id <id>`.
 

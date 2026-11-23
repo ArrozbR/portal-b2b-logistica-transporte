@@ -145,7 +145,7 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 | LGPD | CNH completa só no serviço de transportadoras; a logística recebe só os 4 últimos dígitos; telefone e CNH só para comprador e fornecedor da entrega (ADR-025) |
 | Banco | Cada serviço usa o seu `svc_*`, que só faz SELECT/INSERT/UPDATE/DELETE no próprio schema (K1, K2) |
 | Segredos | Padrões só de desenvolvimento no `docker-compose.yml`, sobrescritos pelo `.env` (fora do Git); chave JWT de 32+ caracteres |
-| Login de demonstração | `usuarios-falso` emite tokens RS256 e publica o JWKS, só no ambiente de desenvolvimento (ADR-019, ADR-026) |
+| Login | As telas usam o fluxo do Identity-Service (login, troca de contexto e renovação). No desenvolvimento, o `usuarios-falso` imita essas rotas; com `AUTH_URL`, o portal fala com o Identity-Service real (ADR-019, ADR-026, ADR-029) |
 
 ## 8. Persistência e consistência
 
@@ -465,6 +465,13 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 - **Alternativas:** manter o cancelamento (o pedido ficaria parado do lado de Pedidos); deixar uma pessoa reabrir pela tela (exigiria uma rota nova e alguém acompanhando cada pedido).
 - **Consequências:** um pedido sem transportadora possível fica tentando a cada 12 h do módulo, sem limite. A comparação, o rastreio e a tela de solicitações mostram cada rodada separada ([explicação 11](explicacoes/11-nova-rodada-e-cidades.md)).
 
+### ADR-029: Funcionar sem os falsos
+
+- **Contexto:** o login das telas, as transportadoras e o botão de pedido de teste dependiam dos contêineres falsos. Sem eles, ninguém entrava nas telas e nenhuma transportadora existia para as empresas reais.
+- **Decisão:** as telas usam o fluxo de login do Identity-Service (login, troca de contexto, renovação), e o `usuarios-falso` imita essas rotas no mesmo formato. O portal lê o endereço da Autenticação de `AUTH_URL`. O `transportadoras-service` consome `empresa_cadastrada` e cria uma transportadora real para cada empresa com escopo `CARRIER`. Os falsos ficam opcionais (D28).
+- **Alternativas:** manter o login de demonstração (as telas só funcionariam com o falso); cadastrar transportadoras por uma tela nossa (duplicaria o cadastro da Autenticação).
+- **Consequências:** o mesmo código serve à demonstração e ao ambiente da turma. A transportadora real começa aceitando os 4 tipos de carga, porque o evento não informa quais ela leva ([explicação 12](explicacoes/12-sem-os-falsos.md)).
+
 ## 13. Limitações conhecidas
 
 | Limitação | Efeito | Possível evolução |
@@ -477,8 +484,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | Publicação da outbox serializada | Vazão de publicação limitada | Trava por chave em vez de global |
 | p95 de leitura perto de 500 ms com 200 usuários | Pouca folga no critério do kit | Índices específicos, cache de leitura curta, mais cópias |
 | Notificações por empresa, não por usuário | Todos da empresa veem as mesmas | Destinatário por usuário |
-| Login de demonstração com token de 8 h | Só desenvolvimento | Usar o `usuarios-service` |
-| Tela de login só de demonstração | O portal entra pelo `usuarios-falso`, não pelo login e pela troca de contexto da Autenticação | Usar o login da Autenticação no gateway |
+| Transportadora real começa com os 4 tipos de carga | O `empresa_cadastrada` não diz o que a empresa transporta; ela só cota o que a frota comporta (ADR-029) | A Autenticação incluir os tipos de carga no evento |
 | Especificações ERS-LLM ainda sem a revisão do QA (gate G1) | Podem mudar depois da revisão | Revisão do QA |
 | O relógio do módulo nunca volta, e cada rodada da integração o adianta | Depois de muitas rodadas no mesmo ambiente, as CNHs do seed vencem e as transportadoras param de cotar; a suíte avisa e pede `docker compose down -v` | Seed com CNHs de validade longa, ou recriar o ambiente antes de cada rodada |
 | O relógio do módulo só acelera e adianta | Um teste não consegue pôr o relógio num instante exato; os critérios com data conferem relações a partir do `aberta_em` | Rota de teste para fixar o relógio, só no ambiente de desenvolvimento |
@@ -509,7 +515,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | Infraestrutura | Tópicos novos, consumidores novos, correções do kit, caminho das telas no gateway |
 | Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
 | Fornecimento e Produtos | Atendido em 10/11/2026: listas confirmadas, origem do fornecimento em cidade e UF e `pesoUnitarioKg` no produto. Falta só avisar que já usamos RS256 |
-| Autenticação | Cidade e UF da empresa, que o `empresa_cadastrada` (agora em camelCase) não traz. O administrador do módulo já está resolvido pelo `platform_role` `PLATFORM_ADMIN` (ADR-026) |
+| Autenticação | Tipos de carga da transportadora no `empresa_cadastrada` (ADR-029); confirmar que o refresh mantém o contexto escolhido. O administrador do módulo já está resolvido pelo `platform_role` `PLATFORM_ADMIN` (ADR-026) |
 | Turma | Padrão único do erro: `codigo` (nós e Produtos) ou `code` (proposta da Autenticação) |
 | Teste e Qualidade | Revisar a ESP-LOG-001 e a ESP-TRP-001 (gate G1) |
 | Professor | P1 (posição simulada), P2 (escolha pelo comprador), P3 (tópicos novos), data da apresentação |
@@ -534,3 +540,4 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | 1.4 | 10/11/2026 | Carga de escrita medida (seção 11.3); pedido de teste pela tela (ADR-023); ESP-LOG-001 1.2 com todas as rotas; 132 testes unitários |
 | 1.5 | 14/11/2026 | Pedido de leilão: o frete só abre no fechamento (ADR-027, D26); ESP-LOG-001 1.3; 142 testes unitários e 9 de integração |
 | 1.6 | 23/11/2026 | Resposta ao grupo de Pedidos: nova rodada no frete indisponível (ADR-028, D27) e fechamento confirmado (ADR-027); 132 cidades; ESP-LOG-001 1.4; 144 testes unitários e 10 de integração |
+| 1.7 | 23/11/2026 | Funcionar sem os falsos (ADR-029, D28): login real nas telas, transportadora real pelo `empresa_cadastrada`; ESP-TRP-001 1.2; 158 testes unitários e 12 de integração |

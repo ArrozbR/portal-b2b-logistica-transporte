@@ -39,6 +39,7 @@ Situações:
 | D25 | Token do grupo de Autenticação | Token RS256 da Autenticação (JWKS, `tenant_id`, `active_scope`); o formato do kit (HS256) continua por configuração | Aceita; admin pelo `platform_role` `PLATFORM_ADMIN` do Identity-Service. Depende da Infra (kit) |
 | D26 | Pedido que nasce sem comprador (leilão) | O frete só abre quando o pedido tem comprador e destino; no leilão, isso chega no fechamento (`pedido_atualizado`) | Aceita; confirmada pelo grupo de Pedidos (`VENDA_CONCLUIDA` e `AGUARDANDO_FRETE`, 19/11/2026) |
 | D27 | Frete indisponível depois da venda | Não cancela o pedido: abre uma nova rodada de cotação para o mesmo pedido | Aceita (pedido do grupo de Pedidos, issue #1, 23/11/2026) |
+| D28 | Funcionar sem os falsos | Login real nas telas (formato do Identity-Service), transportadora real criada pelo `empresa_cadastrada` e falsos opcionais | Aceita; o ambiente da turma depende da Infraestrutura |
 
 ## 2. Decisões
 
@@ -278,6 +279,22 @@ Implementado: `services/logistica-service/logistica/pedidos.py` (regras puras), 
 **Alternativa rejeitada:** manter o cancelamento. O pedido ficaria parado do lado de Pedidos, que não cancela depois da venda.
 
 Implementado: `servico.py` (`_reabrir`, `pedido_da_solicitacao`), migração `006_nova_rodada.sql`, campo `rodada` no `solicitacao_frete_criada`, tela de solicitações, `pedidos-falso`, teste de integração `test_frete_indisponivel.py`, ESP-LOG-001 1.4 (RF-21) e [explicação 11](explicacoes/11-nova-rodada-e-cidades.md).
+
+**Situação:** aceita.
+
+### D28. Funcionar sem os falsos
+
+**Contexto:** até aqui, dois contêineres falsos faziam o papel de outros grupos: o `usuarios-falso` (Autenticação) e o `pedidos-falso` (Pedidos). O back-end já aceitava o token e os eventos reais, mas três coisas dependiam dos falsos: o login das telas, a existência das transportadoras (só dos seeds, ligadas a empresas inventadas) e o botão de pedido de teste.
+
+**Decisão:**
+
+1. **Login real nas telas.** O portal usa o fluxo do Identity-Service: `POST /api/v1/auth/login` (e-mail e senha), escolha da empresa e do perfil (`POST /api/v1/auth/switch-context`) e renovação automática do token, que vale 15 min (`POST /api/v1/auth/refresh`). O `usuarios-falso` passou a imitar essas rotas no mesmo formato, então as telas não sabem se falam com o falso ou com o real. O endereço é a variável `AUTH_URL` do portal.
+2. **Transportadora real pelo `empresa_cadastrada`.** Empresa com escopo `CARRIER` no Identity-Service vira transportadora real (`simulada` false), com o `tenantId` como id. O usuário dela entra pelo login real e encontra a sua transportadora; ela cota digitando e cadastra a própria frota.
+3. **Falsos opcionais.** O portal sobe sem eles; o botão "Novo pedido de teste" só aparece se o `pedidos-falso` responde.
+
+**O que depende de outros grupos** (anotado nas issues do nosso repositório): a Infraestrutura criar os tópicos novos e as rotas no gateway (inclusive `/api/v1/auth/` para o Identity-Service), o grupo de Banco aplicar as nossas migrações, e a Autenticação dizer no `empresa_cadastrada` que cargas a transportadora leva (hoje ela começa com os 4 tipos).
+
+Implementado: `frontend/assets/portal.js` (login), `comum/comum/ferramentas/usuarios_falso.py` (rotas `/api/v1/auth/*`), `services/transportadoras-service/transportadoras/empresas.py` e `registrar_empresa`, `infra/portal/nginx.conf` (modelo com `AUTH_URL`), ESP-TRP-001 1.2 (RF-14) e [explicação 12](explicacoes/12-sem-os-falsos.md).
 
 **Situação:** aceita.
 

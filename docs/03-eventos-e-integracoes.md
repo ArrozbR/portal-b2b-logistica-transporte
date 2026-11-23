@@ -31,7 +31,7 @@ O `timestamp` do envelope é a **hora real**. As datas de negócio dentro do `pa
 |---|---|---|---|---|
 | `pedido_criado` | pedidos | **logística**, fornecimentos | `pedidoId` | Kit. Precisamos de campos a mais (seção 3.1) |
 | `pedido_atualizado` | pedidos | **logística**, **transportadoras** (novo consumidor), fornecimentos | `pedidoId` | Kit. Usamos só o cancelamento |
-| `empresa_cadastrada` | usuarios | **transportadoras**, outros | `empresaId` | Kit. Precisamos de endereço e tipo (seção 4) |
+| `empresa_cadastrada` | Autenticação (Identity-Service) | **transportadoras**, outros | `tenantId` | Kit. Empresa com escopo `CARRIER` vira transportadora real (D28); falta o que ela transporta (seção 4) |
 | `solicitacao_frete_criada` | **logística** | **transportadoras** | `solicitacaoFreteId` | Kit |
 | `cotacao_recebida` | **transportadoras** | **logística** | `solicitacaoFreteId` | Kit |
 | `frete_selecionado` | **logística** | pedidos, **transportadoras** (novo consumidor) | `pedidoId` | Kit, com consumidor e campos a mais |
