@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-TRP-001 |
-| Versão | 1.2 |
+| Versão | 1.3 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `transportadoras-service`: transportadoras homologadas, frota, cotação, escala e viagem simulada. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -346,7 +346,7 @@ Requisição:
 ```json
 {"valor": 5800.00, "dataEntregaPrevista": "2026-11-17", "validaAte": "2026-11-10T18:00:00Z", "observacoes": "Coleta pela manhã"}
 ```
-- `valor`: número > 0 e ≤ 10000000 (R$). `dataEntregaPrevista`: data. `validaAte`: instante (sem fuso = Brasília). `observacoes`: opcional, até 500 caracteres; vazio vira `null`.
+- `valor`: número de 0.01 a 10000000 (R$), com no máximo 2 casas decimais; fora disso → 422 `DADOS_INVALIDOS`. `dataEntregaPrevista`: data. `validaAte`: instante (sem fuso = Brasília). `observacoes`: opcional, até 500 caracteres; vazio vira `null`.
 
 Resposta 201:
 ```json
@@ -1221,6 +1221,7 @@ O CA-28 vem depois do CA-27 no RF-09 porque depende da escala. Os atributos inte
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.3 | 2026-11-23 | Grupo 5 | Correções da caça aos bugs (explicação 13): `valor` da cotação digitada com no máximo 2 casas e no mínimo 0.01 (antes, 0.004 recebia 201 e a cotação morria na DLT da logística); `correlationId` de até 128 caracteres (migração 004); envelope validado como na RN-30 da ESP-LOG-001 1.5. |
 | 1.2 | 2026-11-23 | Grupo 5 | Transportadora real criada a partir do `empresa_cadastrada` da Autenticação (D28; RF-14, RN-24, CA-43, CA-44, Q-13, §7.3). |
 | 1.1 | 2026-11-10 | Grupo 5 | Token conforme o código do Identity-Service, como na ESP-LOG-001 1.1 (§7.1). |
 | 1.0 | 2026-11-10 | Grupo 5 | Criação, a partir do serviço implementado e de respostas reais do ambiente. Corrigidos no código ao escrever: alteração de motorista ou veículo com CNH ou placa duplicada (500 → 409) e situação da carga de pedido cancelado ("VENCEU" → "CANCELADA"). |
