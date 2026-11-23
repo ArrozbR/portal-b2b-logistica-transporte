@@ -2,7 +2,7 @@
 
 Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuído, trabalho da disciplina de Sistemas Distribuídos (2026). O grupo cuida do que acontece depois que o pedido é criado: cotar o frete com as transportadoras, comparar as propostas, escolher a vencedora e acompanhar a entrega num mapa até a chegada.
 
-> **Situação:** etapas 1 a 5 concluídas e validadas no Docker. O pedido entra, as transportadoras cotam (sozinhas ou digitando), o comprador compara e escolhe pela tela, o motorista é escalado e o caminhão anda no mapa até a entrega, com ranking, documentos e ocorrências, em <http://localhost:8088>. Os 3 cenários distribuídos (mensagem duplicada, escolhas simultâneas e cópia caindo) têm teste automático, o teste de carga passa no critério do kit e o [relatório técnico](docs/07-relatorio-tecnico.md) reúne as decisões em ADRs. As especificações [ESP-LOG-001](docs/especificacoes/ESP-LOG-001_Logistica.md) e [ESP-TRP-001](docs/especificacoes/ESP-TRP-001_Transportadoras.md), no modelo do grupo de Teste e Qualidade, estão escritas e aguardam a revisão deles. Faltam os slides e o ensaio da apresentação. Pendente com outros grupos: enviar a [proposta de contrato](docs/contratos/proposta-grupo-pedidos.md) ao grupo de Pedidos. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
+> **Situação:** etapas 1 a 5 concluídas e validadas no Docker. O pedido entra, as transportadoras cotam (sozinhas ou digitando), o comprador compara e escolhe pela tela, o motorista é escalado e o caminhão anda no mapa até a entrega, com ranking, documentos e ocorrências, em <http://localhost:8088>. Os 3 cenários distribuídos (mensagem duplicada, escolhas simultâneas e cópia caindo) têm teste automático, o teste de carga passa no critério do kit e o [relatório técnico](docs/07-relatorio-tecnico.md) reúne as decisões em ADRs. As especificações [ESP-LOG-001](docs/especificacoes/ESP-LOG-001_Logistica.md) e [ESP-TRP-001](docs/especificacoes/ESP-TRP-001_Transportadoras.md), no modelo do grupo de Teste e Qualidade, estão escritas e aguardam a revisão deles. O fluxo segue o que o grupo de Pedidos definiu ([issue #1](https://github.com/ArrozbR/portal-b2b-logistica-transporte/issues/1)): o frete começa quando o pedido tem comprador e destino (`pedido_atualizado` `AGUARDANDO_FRETE`), e o frete indisponível abre uma nova cotação em vez de cancelar o pedido. Os slides estão prontos; falta o ensaio da apresentação. Pendente com outros grupos: aprovação dos tópicos novos pela Infraestrutura e revisão das especificações pelo grupo de Teste e Qualidade. **Decisões em [Pauta de decisões](docs/06-pauta-de-decisoes.md); explicações do código em [`docs/explicacoes/`](docs/explicacoes/).**
 
 ## Integrantes
 
@@ -33,7 +33,7 @@ Porta, schema, usuário de banco e tópicos já foram definidos pelo [kit de inf
 
 ```mermaid
 flowchart LR
-    PED[pedidos-service] -->|pedido_criado| LOG[logistica-service]
+    PED[pedidos-service] -->|pedido_criado<br/>pedido_atualizado| LOG[logistica-service]
     LOG -->|solicitacao_frete_criada| TRP[transportadoras-service]
     TRP -->|cotacao_recebida| LOG
     LOG -->|frete_selecionado| PED
@@ -43,7 +43,7 @@ flowchart LR
     FE[Telas sobre o<br/>mockup do UX] -->|/api/v1/logistica| LOG
 ```
 
-`*` tópicos novos, que precisam ser propostos ao grupo de Infraestrutura. Todas as setas entre serviços passam pelo Redpanda. O detalhe está em [Arquitetura](docs/02-arquitetura-proposta.md).
+`*` tópicos novos, que precisam ser aprovados pelo grupo de Infraestrutura. O `pedido_criado` chega sem comprador nem destino; a cotação abre no `pedido_atualizado` `AGUARDANDO_FRETE`, que traz a carga completa (D26). Se o frete ficar indisponível, a logística abre uma nova cotação para o mesmo pedido (D27). Todas as setas entre serviços passam pelo Redpanda. O detalhe está em [Arquitetura](docs/02-arquitetura-proposta.md).
 
 ## Documentação
 
@@ -54,10 +54,11 @@ flowchart LR
 | [03. Eventos e integrações](docs/03-eventos-e-integracoes.md) | Payloads, tópicos novos e o que precisamos pedir a cada grupo |
 | [04. Análise do kit](docs/04-analise-do-kit.md) | Problemas encontrados nos boilerplates de logística e transportadoras |
 | [05. Plano de trabalho](docs/05-plano-de-trabalho.md) | Etapas, testes e roteiro da demonstração |
-| [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões D1 a D25 e perguntas para o professor |
+| [06. Pauta de decisões](docs/06-pauta-de-decisoes.md) | Decisões D1 a D27 e perguntas para o professor |
 | [07. Relatório técnico](docs/07-relatorio-tecnico.md) | Arquitetura, testes e resultados, limitações e as decisões em ADRs |
-| [Proposta ao grupo de Pedidos](docs/contratos/proposta-grupo-pedidos.md) | Documento pronto para enviar: campos do `pedido_criado` e eventos que eles precisam consumir |
+| [Proposta ao grupo de Pedidos](docs/contratos/proposta-grupo-pedidos.md) | Campos do `pedido_criado` e eventos que eles consomem; atendida pelo grupo de Pedidos em 19/11/2026 |
 | [ESP-LOG-001](docs/especificacoes/ESP-LOG-001_Logistica.md) e [ESP-TRP-001](docs/especificacoes/ESP-TRP-001_Transportadoras.md) | Especificações dos dois serviços no modelo ERS-LLM do grupo de Teste e Qualidade, com os critérios de aceitação que eles usam para testar |
+| [Explicações](docs/explicacoes/) | Uma explicação de cada parte implementada (01 a 11), com as perguntas que o professor pode fazer |
 
 ## Repositórios de referência
 
@@ -67,6 +68,8 @@ flowchart LR
 | [Sistema-MicServ-SD](https://github.com/davicalvarenga/Sistema-MicServ-SD) | Fornecimento e Produtos | Modelo de organização da documentação e análise do kit (itens K1 a K11). As pendências com o nosso grupo (P-06, P-27) foram resolvidas em 10/11/2026 |
 | [portal-b2b-UI-UX](https://github.com/HugoParzival007/portal-b2b-UI-UX) | UX/UI | Mockups das telas de fretes e de rastreamento, que a nossa API precisa alimentar |
 | [AED---Processo-e-Artefato-SD-](https://github.com/AmandaBfa/AED---Processo-e-Artefato-SD-) | Teste e Qualidade | Modelo ERS-LLM para as especificações dos serviços, que o QA usa para testar |
+| [portal-b2b-mercado-negociacao-pedidos](https://github.com/brunnoalexcson/portal-b2b-mercado-negociacao-pedidos) | Mercado, Negociação e Pedidos | ESP-PED-001 e os schemas dos eventos que eles consomem de nós (`solicitacao_frete_criada`, `frete_selecionado`, `frete_indisponivel`, `entrega_concluida`) |
+| [Identity-Service](https://github.com/Matheus-Allvz/Identity-Service) | Autenticação | Formato do token RS256 (`iss`, `aud`, `platform_role`, `active_scope`) e JWKS |
 
 ## Como rodar
 
@@ -124,7 +127,7 @@ python -m venv .venv
 Testes de integração e de carga, com o ambiente no ar (eles aceleram o relógio e derrubam contêineres; não rode durante uma demonstração):
 
 ```bash
-.venv/Scripts/python -m pytest testes_integracao -v      # os 4 cenários distribuídos, o fluxo completo e a frota (~3 min)
+.venv/Scripts/python -m pytest testes_integracao -v      # 10 testes: cenários distribuídos, fluxo completo, frota, leilão e nova cotação (~3 min)
 docker run --rm -i --network logistica-grupo5_default grafana/k6:0.54.0 run - < testes_carga/leitura.js
 docker run --rm -i --network logistica-grupo5_default -e TAXA=10 grafana/k6:0.54.0 run - < testes_carga/escrita.js
 ```
@@ -143,7 +146,7 @@ O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](do
 ├── comum/                        # código compartilhado pelos dois serviços
 │   ├── comum/                    # eventos, outbox, consumidor, relógio, JWT, erros, logs
 │   │   ├── contratos/            # JSON Schemas dos eventos
-│   │   └── ferramentas/          # pedido falso (D23) e gerador de token
+│   │   └── ferramentas/          # pedidos e usuários falsos (D23) e gerador de token
 │   └── tests/
 ├── services/
 │   ├── logistica-service/
@@ -157,7 +160,7 @@ O que já funciona e como cada parte foi feita está em [`docs/explicacoes/`](do
 ├── frontend/                     # telas (HTML, CSS, JavaScript e mapa Leaflet)
 ├── infra/                        # Postgres, tópicos e portal (Nginx)
 ├── testes_integracao/            # cenários distribuídos contra o ambiente no ar
-├── testes_carga/                 # cenário do k6
+├── testes_carga/                 # cenários do k6 (leitura e escrita)
 └── docs/
     ├── 01-contexto-e-escopo.md ... 07-relatorio-tecnico.md
     ├── contratos/                # propostas de contrato com outros grupos
