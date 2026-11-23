@@ -5,6 +5,7 @@
   const { api, escapar, erroHtml, formato, modal, avisoRapido } = Portal;
   const TIPOS = ['GRANEL', 'REFRIGERADO', 'CARGA_SECA', 'PERIGOSO'];
   let cidades = null;
+  let comPedidosFalso = false;
 
   async function novoPedido() {
     try {
@@ -112,11 +113,9 @@
       document.getElementById('mensagem').innerHTML = '';
       lista.className = '';
       if (!itens.length) {
-        const admin = Portal.sessao().usuario.perfil === 'admin';
         lista.innerHTML = `<div class="vazio-grande">Nenhuma solicitação ${filtro === 'todas' ? 'ainda' : 'neste filtro'}.
-          ${filtro === 'todas' ? `<br>As solicitações chegam do grupo de Pedidos. ${admin
-            ? 'No ambiente de desenvolvimento, use o botão <strong>Novo pedido de teste</strong>.'
-            : 'No ambiente de desenvolvimento, entre como administrador e use o botão <strong>Novo pedido de teste</strong>.'}` : ''}</div>`;
+          ${filtro === 'todas' ? `<br>As solicitações chegam do grupo de Pedidos. ${comPedidosFalso
+            ? 'No ambiente de desenvolvimento, use o botão <strong>Novo pedido de teste</strong> (administrador).' : ''}` : ''}</div>`;
         return;
       }
       lista.innerHTML = `<table class="tabela"><thead><tr><th>Pedido</th><th>Rota</th><th class="opcional">Carga</th>
@@ -141,7 +140,7 @@
       document.getElementById('conteudo').innerHTML = `
         <div class="cabecalho"><div><h1>Solicitações de frete</h1>
           <p>Cada pedido abre uma solicitação. Compare as cotações das transportadoras e escolha o frete.</p></div>
-          ${admin ? '<button type="button" class="botao primario" id="novo-pedido">+ Novo pedido de teste</button>' : ''}</div>
+          ${admin ? '<button type="button" class="botao primario" id="novo-pedido" hidden>+ Novo pedido de teste</button>' : ''}</div>
         <div class="filtros" id="filtros">
           <button type="button" data-filtro="todas" class="ativo">Todas</button>
           <button type="button" data-filtro="escolher">Aguardando escolha</button>
@@ -156,7 +155,14 @@
         document.querySelectorAll('#filtros button').forEach((b) => b.classList.toggle('ativo', b === botao));
         carregar();
       });
-      if (admin) document.getElementById('novo-pedido').addEventListener('click', novoPedido);
+      if (admin) {
+        // O botão só aparece se o pedidos-falso (desenvolvimento) responde. Com o grupo de Pedidos
+        // real integrado, ele não existe e o botão some (D28).
+        const botao = document.getElementById('novo-pedido');
+        botao.addEventListener('click', novoPedido);
+        api('/api/v1/pedidos-falso/cidades').then((lista) => { cidades = lista; comPedidosFalso = true; botao.hidden = false; })
+          .catch(() => { /* sem pedidos-falso: sem botão */ });
+      }
       carregar();
       setInterval(carregar, 5000);
     },

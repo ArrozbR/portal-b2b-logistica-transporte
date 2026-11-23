@@ -42,7 +42,12 @@ const Portal = (() => {
   function salvarSessao(s) {
     try { localStorage.setItem(CHAVE, JSON.stringify(s)); } catch { /* navegador sem armazenamento */ }
   }
-  function sair() {
+  async function sair() {
+    const s = sessao();
+    if (s && s.token) {
+      // Encerra a sessão na Autenticação (revoga o refresh_token); se falhar, sai assim mesmo.
+      try { await fetch('/api/v1/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${s.token}` } }); } catch { /* sem rede */ }
+    }
     try { localStorage.removeItem(CHAVE); } catch { /* idem */ }
     location.reload();
   }
@@ -56,7 +61,8 @@ const Portal = (() => {
     }
   }
 
-  async function api(caminho, { metodo = 'GET', corpo, cabecalhos = {} } = {}) {
+  async function api(caminho, opcoes = {}, renovado = false) {
+    const { metodo = 'GET', corpo, cabecalhos = {} } = opcoes;
     const headers = { ...cabecalhos };
     const s = sessao();
     if (s && s.token) headers.Authorization = `Bearer ${s.token}`;
@@ -72,6 +78,8 @@ const Portal = (() => {
     const dados = tipo.includes('json') ? await resposta.json() : await resposta.text();
     if (!resposta.ok) {
       const problema = typeof dados === 'object' ? dados : { title: 'Erro', detail: String(dados).slice(0, 200) };
+      // Token vencido (15 min no Identity-Service): renova uma vez com o refresh_token e repete.
+      if (resposta.status === 401 && !renovado && await renovar()) return api(caminho, opcoes, true);
       if (resposta.status === 401) { try { localStorage.removeItem(CHAVE); } catch { /* idem */ } mostrarLogin(); }
       throw new ErroApi({ ...problema, status: resposta.status });
     }
@@ -184,9 +192,10 @@ const Portal = (() => {
   }
 
   // ------------------------------------------------------------------ download autenticado (PDF)
-  async function baixar(caminho, nomeArquivo) {
+  async function baixar(caminho, nomeArquivo, renovado = false) {
     const s = sessao();
     const resposta = await fetch(caminho, { headers: s ? { Authorization: `Bearer ${s.token}` } : {} });
+    if (resposta.status === 401 && !renovado && await renovar()) return baixar(caminho, nomeArquivo, true);
     if (!resposta.ok) {
       const problema = await resposta.json().catch(() => ({ title: 'Erro', detail: `HTTP ${resposta.status}` }));
       throw new ErroApi({ ...problema, status: resposta.status });
@@ -311,40 +320,95 @@ const Portal = (() => {
     } catch { /* pedido ainda sem entrega: fica só marcada como lida */ }
   }
 
-  // ------------------------------------------------------------------ usuário e login de demonstração
-  async function opcoesDeUsuario() {
-    const usuarios = await api('/api/v1/usuarios/demonstracao');
-    return usuarios.map((u) => `
-      <button type="button" class="opcao-usuario" data-id="${escapar(u.id)}">
-        <span class="avatar">${escapar(u.nome.split(' ').map((p) => p[0]).slice(0, 2).join(''))}</span>
-        <span><strong>${escapar(u.nome)}</strong><small>${escapar(u.perfil)} · ${escapar(u.empresaNome)}</small></span>
-      </button>`).join('');
+  // ------------------------------------------------------------------ login (formato do Identity-Service, D28)
+  // O mesmo fluxo vale para o usuarios-falso (desenvolvimento) e para o Identity-Service real:
+  //   POST /api/v1/auth/login → token sem empresa + available_contexts
+  //   POST /api/v1/auth/switch-context → token da empresa e do escopo escolhidos
+  //   POST /api/v1/auth/refresh → token novo quando o anterior vence (15 min)
+  const ESCOPOS = { BUYER: 'comprador', SUPPLIER: 'fornecedor', CARRIER: 'transportadora' };
+
+  async function chamarAuth(caminho, corpo, token) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let resposta;
+    try {
+      resposta = await fetch(caminho, { method: 'POST', headers, body: JSON.stringify(corpo) });
+    } catch {
+      throw new ErroApi({ title: 'Sem conexão', detail: 'Não foi possível falar com o serviço de Autenticação.', status: 0 });
+    }
+    const dados = (resposta.headers.get('content-type') || '').includes('json') ? await resposta.json() : {};
+    if (!resposta.ok) {
+      throw new ErroApi({ ...dados, title: dados.title || 'Não foi possível entrar',
+        detail: dados.detail || dados.message || `A Autenticação respondeu ${resposta.status}.`, status: resposta.status });
+    }
+    return dados;
   }
 
-  async function entrarComo(usuarioId) {
-    const r = await api('/api/v1/usuarios/demonstracao/login', { metodo: 'POST', corpo: { usuarioId } });
-    salvarSessao({ token: r.accessToken, usuario: r.usuario });
-    // Troca de perfil: a página atual pode não servir para o novo perfil.
+  let renovacao = null;
+  function renovar() {
+    const s = sessao();
+    if (!s || !s.refreshToken) return Promise.resolve(false);
+    // Várias chamadas vencendo juntas usam a mesma renovação (o refresh_token só vale uma vez).
+    renovacao = renovacao || chamarAuth('/api/v1/auth/refresh', { refresh_token: s.refreshToken })
+      .then((r) => { salvarSessao({ ...sessao(), token: r.access_token, refreshToken: r.refresh_token }); return true; })
+      .catch(() => false)
+      .finally(() => { setTimeout(() => { renovacao = null; }, 0); });
+    return renovacao;
+  }
+
+  function concluirEntrada(perfil) {
+    // A página atual pode não servir para o perfil que entrou.
     const pagina = location.pathname.split('/').pop() || 'index.html';
     const daTransportadora = ['fretes.html', 'frota.html'].includes(pagina);
-    const ehTransportadora = r.usuario.perfil === 'transportadora';
-    if (pagina !== 'transportadoras.html' && daTransportadora !== ehTransportadora) {
-      location.href = inicioDoPerfil(r.usuario.perfil);
+    if (pagina !== 'transportadoras.html' && daTransportadora !== (perfil === 'transportadora')) {
+      location.href = inicioDoPerfil(perfil);
     } else {
       location.reload();
     }
+  }
+
+  async function entrar(email, senha, escolher) {
+    const r = await chamarAuth('/api/v1/auth/login', { email, password: senha });
+    const usuario = { id: r.user.id, nome: r.user.name || r.user.email };
+    if (r.user.platform_role === 'PLATFORM_ADMIN') {
+      // Administrador da plataforma: usa o módulo sem escolher empresa (D25).
+      salvarSessao({ token: r.access_token, refreshToken: r.refresh_token,
+        usuario: { ...usuario, perfil: 'admin', empresaId: null, empresaNome: 'Administração da plataforma' } });
+      concluirEntrada('admin');
+      return;
+    }
+    const opcoes = (r.available_contexts || []).flatMap((c) => (c.available_scopes || [])
+      .filter((escopo) => ESCOPOS[escopo]).map((escopo) => ({ contexto: c, escopo })));
+    if (!opcoes.length) {
+      throw new ErroApi({ title: 'Sem acesso ao módulo',
+        detail: 'Este usuário não é comprador, fornecedor nem transportadora em nenhuma empresa.' });
+    }
+    const escolhida = opcoes.length === 1 ? opcoes[0] : await escolher(opcoes);
+    const t = await chamarAuth('/api/v1/auth/switch-context',
+      { view_mode: 'SINGLE', target_scope: escolhida.escopo, target_tenant_id: escolhida.contexto.tenant_id }, r.access_token);
+    const perfil = ESCOPOS[escolhida.escopo];
+    salvarSessao({ token: t.access_token, refreshToken: r.refresh_token,
+      usuario: { ...usuario, perfil, empresaId: escolhida.contexto.tenant_id, empresaNome: escolhida.contexto.legal_name } });
+    concluirEntrada(perfil);
+  }
+
+  async function usuariosDeDemonstracao() {
+    // Só existe no ambiente de desenvolvimento (usuarios-falso). Com a Autenticação real, a lista some.
+    try {
+      const r = await fetch('/api/v1/usuarios/demonstracao');
+      return r.ok ? (await r.json()).filter((u) => u.email) : [];
+    } catch { return []; }
   }
 
   async function alternarMenuUsuario() {
     const painel = document.getElementById('painel-usuario');
     if (!painel.hidden) { painel.hidden = true; return; }
     painel.hidden = false;
-    try {
-      painel.innerHTML = `<h3>Trocar de usuário (demonstração)</h3>${await opcoesDeUsuario()}
-        <button type="button" class="opcao-usuario" id="botao-sair">${icone('sair')}<span><strong>Sair</strong></span></button>`;
-      painel.querySelectorAll('.opcao-usuario[data-id]').forEach((b) => b.addEventListener('click', () => entrarComo(b.dataset.id)));
-      document.getElementById('botao-sair').addEventListener('click', sair);
-    } catch (erro) { painel.innerHTML = erroHtml(erro); }
+    painel.innerHTML = `<h3>Sessão</h3>
+      <button type="button" class="opcao-usuario" id="botao-trocar">${icone('usuario')}<span><strong>Entrar com outro usuário</strong></span></button>
+      <button type="button" class="opcao-usuario" id="botao-sair">${icone('sair')}<span><strong>Sair</strong></span></button>`;
+    document.getElementById('botao-trocar').addEventListener('click', sair);
+    document.getElementById('botao-sair').addEventListener('click', sair);
   }
 
   async function mostrarLogin() {
@@ -354,14 +418,65 @@ const Portal = (() => {
     tela.id = 'tela-login';
     tela.innerHTML = `<div class="cartao" role="dialog" aria-modal="true" aria-labelledby="titulo-login">
       <h2 id="titulo-login">Entrar no portal</h2>
-      <p>Ambiente de desenvolvimento: escolha um usuário de demonstração. No portal real, o login é feito pelo serviço de Autenticação.</p>
-      <div class="opcoes" id="opcoes-login"><div class="carregando">Carregando…</div></div></div>`;
+      <p>Use o e-mail e a senha do serviço de Autenticação.</p>
+      <form id="form-login" novalidate>
+        <div class="campo"><label for="login-email">E-mail</label><input id="login-email" type="email" autocomplete="username" required></div>
+        <div class="campo"><label for="login-senha">Senha</label><input id="login-senha" type="password" autocomplete="current-password" required></div>
+        <div id="erro-login"></div>
+        <button type="submit" class="botao primario largo" id="botao-entrar">Entrar</button>
+      </form>
+      <div class="opcoes" id="escolha-contexto" hidden></div>
+      <div id="demonstracao"></div></div>`;
     document.body.appendChild(tela);
-    const opcoes = document.getElementById('opcoes-login');
-    try {
-      opcoes.innerHTML = await opcoesDeUsuario();
-      opcoes.querySelectorAll('.opcao-usuario').forEach((b) => b.addEventListener('click', () => entrarComo(b.dataset.id)));
-    } catch (erro) { opcoes.innerHTML = erroHtml(erro); }
+    const form = document.getElementById('form-login');
+    const erro = document.getElementById('erro-login');
+    const escolha = document.getElementById('escolha-contexto');
+
+    // Mais de uma empresa ou escopo: a pessoa escolhe (é o switch-context).
+    const escolher = (opcoes) => new Promise((resolver) => {
+      form.hidden = true;
+      escolha.hidden = false;
+      escolha.innerHTML = `<p>Com qual empresa e perfil você quer entrar?</p>${opcoes.map((o, i) => `
+        <button type="button" class="opcao-usuario" data-i="${i}">
+          <span class="avatar">${escapar(ESCOPOS[o.escopo][0].toUpperCase())}</span>
+          <span><strong>${escapar(o.contexto.legal_name)}</strong><small>${escapar(ESCOPOS[o.escopo])}</small></span>
+        </button>`).join('')}`;
+      escolha.querySelectorAll('button[data-i]').forEach((b) => b.addEventListener('click', () => resolver(opcoes[Number(b.dataset.i)])));
+    });
+
+    const enviar = async (email, senha) => {
+      erro.innerHTML = '';
+      const botao = document.getElementById('botao-entrar');
+      botao.disabled = true;
+      try {
+        await entrar(email, senha, escolher);
+      } catch (e) {
+        form.hidden = false;
+        escolha.hidden = true;
+        erro.innerHTML = erroHtml(e);
+      } finally { botao.disabled = false; }
+    };
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      enviar(document.getElementById('login-email').value.trim(), document.getElementById('login-senha').value);
+    });
+    document.getElementById('login-email').focus();
+
+    const demo = await usuariosDeDemonstracao();
+    if (demo.length) {
+      const area = document.getElementById('demonstracao');
+      area.innerHTML = `<p class="suave">Ambiente de desenvolvimento: entre com um usuário de demonstração (senha <code>demo</code>).</p>
+        <div class="opcoes">${demo.map((u) => `
+          <button type="button" class="opcao-usuario" data-email="${escapar(u.email)}">
+            <span class="avatar">${escapar(u.nome.split(' ').map((p) => p[0]).slice(0, 2).join(''))}</span>
+            <span><strong>${escapar(u.nome)}</strong><small>${escapar(u.perfil)} · ${escapar(u.empresaNome)}</small></span>
+          </button>`).join('')}</div>`;
+      area.querySelectorAll('button[data-email]').forEach((b) => b.addEventListener('click', () => {
+        document.getElementById('login-email').value = b.dataset.email;
+        document.getElementById('login-senha').value = 'demo';
+        enviar(b.dataset.email, 'demo');
+      }));
+    }
   }
 
   // ------------------------------------------------------------------ início

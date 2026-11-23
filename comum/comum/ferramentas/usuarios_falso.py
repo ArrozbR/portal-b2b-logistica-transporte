@@ -14,6 +14,18 @@ reiniciar, os tokens antigos deixam de valer e é preciso entrar de novo.
 Com `JWT_ALGORITHM=HS256`, entrega tokens no formato do kit (`empresaId`,
 `perfil`), assinados com a `JWT_SECRET_KEY`.
 
+Também imita as rotas de login do Identity-Service (D28), no mesmo formato, para as
+telas usarem o fluxo real com o falso ou com o serviço de verdade:
+
+    POST /api/v1/auth/login           e-mail e senha → token sem empresa + refresh_token
+                                      + available_contexts (empresas e escopos)
+    POST /api/v1/auth/switch-context  escolhe empresa e escopo → token com tenant_id e active_scope
+    POST /api/v1/auth/refresh         troca o refresh_token por um token novo (mesmo contexto)
+    POST /api/v1/auth/logout          204
+
+Senha de todos os usuários de demonstração: `demo`. O token do login real vale
+15 min (`TOKEN_MINUTOS`), como no Identity-Service; a tela renova sozinha.
+
 Nunca sobe fora do docker-compose de desenvolvimento.
 
     uvicorn comum.ferramentas.usuarios_falso:app --port 8101
@@ -26,7 +38,7 @@ import uuid
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, Response
 from jwt.algorithms import RSAAlgorithm
 from pydantic import BaseModel, Field
 
@@ -38,17 +50,18 @@ from comum.erros import Problema, registrar_tratadores
 VALIDADE_SEGUNDOS = 8 * 3600
 
 USUARIOS = [
-    {"id": "usr-comprador-1", "nome": "João Silva", "perfil": "comprador",
+    {"id": "usr-comprador-1", "nome": "João Silva", "perfil": "comprador", "email": "comprador@demo.grupo5",
      "empresaId": "emp-comprador-1", "empresaNome": "AgroBrasil Compras"},
-    {"id": "usr-fornecedor-1", "nome": "Maria Souza", "perfil": "fornecedor",
+    {"id": "usr-fornecedor-1", "nome": "Maria Souza", "perfil": "fornecedor", "email": "fornecedor@demo.grupo5",
      "empresaId": "emp-fornecedor-1", "empresaNome": "Fazenda Boa Safra"},
-    {"id": "usr-transp-rodovia", "nome": "Rafael Moreira", "perfil": "transportadora",
+    {"id": "usr-transp-rodovia", "nome": "Rafael Moreira", "perfil": "transportadora", "email": "rodovia@demo.grupo5",
      "empresaId": "emp-transp-rodovia", "empresaNome": "Rodovia Sul Transportes"},
-    {"id": "usr-transp-expressa", "nome": "Carla Expressa", "perfil": "transportadora",
+    {"id": "usr-transp-expressa", "nome": "Carla Expressa", "perfil": "transportadora", "email": "expressa@demo.grupo5",
      "empresaId": "emp-transp-expressa", "empresaNome": "Expressa Cargas Rápidas"},
-    {"id": "usr-admin", "nome": "Administrador", "perfil": "admin",
+    {"id": "usr-admin", "nome": "Administrador", "perfil": "admin", "email": "admin@demo.grupo5",
      "empresaId": "emp-portal", "empresaNome": "Portal B2B"},
 ]
+SENHA_DEMONSTRACAO = "demo"
 
 # Perfil do módulo → escopo da Autenticação. O admin da plataforma entra como
 # TENANT_ADMIN da empresa do portal, com platform_role PLATFORM_ADMIN.
@@ -134,3 +147,121 @@ async def token_de_teste(pedido: PedidoDeToken):
     usuario_id = pedido.usuarioId or f"usr-{uuid.uuid4().hex[:8]}"
     return {"accessToken": emitir_token(usuario_id, pedido.empresaId, pedido.perfil, pedido.minutos * 60),
             "tokenType": "Bearer", "expiresIn": pedido.minutos * 60}
+
+
+# ---------------------------------------------------------------------------- rotas do Identity-Service (D28)
+# Mesmos caminhos, corpos e respostas do Identity-Service (LoginEndpoint.cs,
+# SwitchContextEndpoint.cs, RefreshEndpoint.cs), só com o que as nossas telas usam.
+
+def _minutos() -> int:
+    return config.inteiro("TOKEN_MINUTOS", 15)
+
+
+# refresh_token → {"usuarioId", "perfil" ou None (token do login, sem empresa)}
+_SESSOES: dict[str, dict] = {}
+
+
+def _usuario_por(campo: str, valor: str) -> dict | None:
+    return next((u for u in USUARIOS if u[campo] == valor), None)
+
+
+def _escopo(usuario: dict) -> str:
+    return "PLATFORM_ADMIN" if usuario["perfil"] == "admin" else ESCOPO_DO_PERFIL[usuario["perfil"]]
+
+
+def _token_sem_contexto(usuario: dict) -> str:
+    """Token do login (view_mode NONE): ainda sem empresa nem escopo, como no Identity-Service."""
+    if usuario["perfil"] == "admin":
+        # O administrador da plataforma usa o módulo sem escolher empresa (platform_role).
+        return emitir_token(usuario["id"], usuario["empresaId"], "admin", _minutos() * 60)
+    agora = int(time.time())
+    claims = {"jti": str(uuid.uuid4()), "sub": usuario["id"], "iss": config.texto("JWT_ISSUER", EMISSOR_PADRAO),
+              "aud": config.texto("JWT_AUDIENCE", AUDIENCIA_PADRAO), "platform_role": "NONE", "view_mode": "NONE",
+              "allowed_tenants": [], "roles": [], "permissions": [], "iat": agora, "exp": agora + _minutos() * 60}
+    return jwt.encode(claims, _CHAVE_PRIVADA, algorithm="RS256", headers={"kid": KID})
+
+
+def _nova_sessao(usuario: dict, perfil: str | None) -> str:
+    refresh = uuid.uuid4().hex + uuid.uuid4().hex
+    _SESSOES[refresh] = {"usuarioId": usuario["id"], "perfil": perfil}
+    return refresh
+
+
+def _contextos(usuario: dict) -> list[dict]:
+    if usuario["perfil"] == "admin":
+        return []
+    return [{"group_id": f"grupo-{usuario['empresaId']}", "group_name": usuario["empresaNome"],
+             "tenant_id": usuario["empresaId"], "cnpj": None, "legal_name": usuario["empresaNome"],
+             "branch_type": "HEADQUARTERS", "is_owner": True, "can_view_group": False,
+             "available_scopes": [_escopo(usuario)], "roles": []}]
+
+
+def _erro_auth(status: int, codigo: str, detalhe: str) -> Problema:
+    return Problema(status, codigo, "Falha na autenticação", detalhe)
+
+
+class PedidoDeLoginReal(BaseModel):
+    email: str
+    password: str
+
+
+class TrocaDeContexto(BaseModel):
+    view_mode: str
+    target_scope: str
+    target_tenant_id: str | None = None
+
+
+class Renovacao(BaseModel):
+    refresh_token: str
+
+
+@app.post("/api/v1/auth/login", summary="Login (mesmo formato do Identity-Service)")
+async def login_real(pedido: PedidoDeLoginReal):
+    usuario = _usuario_por("email", pedido.email.strip().lower())
+    if usuario is None or pedido.password != SENHA_DEMONSTRACAO:
+        raise _erro_auth(401, "ERR-AUTH-001", "E-mail ou senha inválidos.")
+    perfil = "admin" if usuario["perfil"] == "admin" else None
+    return {"access_token": _token_sem_contexto(usuario), "token_type": "Bearer", "expires_in": _minutos() * 60,
+            "refresh_token": _nova_sessao(usuario, perfil), "refresh_expires_in": 604800,
+            "user": {"id": usuario["id"], "email": usuario["email"], "name": usuario["nome"],
+                     "platform_role": "PLATFORM_ADMIN" if usuario["perfil"] == "admin" else "NONE"},
+            "available_contexts": _contextos(usuario)}
+
+
+@app.post("/api/v1/auth/switch-context", summary="Escolhe empresa e escopo (mesmo formato do Identity-Service)")
+async def trocar_contexto(pedido: TrocaDeContexto, authorization: str | None = Header(None)):
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    try:
+        claims = jwt.decode(token, _CHAVE_PRIVADA.public_key(), algorithms=["RS256"],
+                            audience=config.texto("JWT_AUDIENCE", AUDIENCIA_PADRAO))
+    except jwt.InvalidTokenError:
+        raise _erro_auth(401, "ERR-AUTH-002", "Envie o token do login no cabeçalho Authorization.")
+    usuario = _usuario_por("id", claims["sub"])
+    if usuario is None or pedido.view_mode != "SINGLE" or pedido.target_tenant_id != usuario["empresaId"] \
+            or pedido.target_scope != _escopo(usuario):
+        raise _erro_auth(403, "ERR-AUTH-003", "O usuário não tem esse escopo nessa empresa.")
+    # Como na família de sessão do Identity-Service: o refresh passa a renovar com este contexto.
+    for sessao in _SESSOES.values():
+        if sessao["usuarioId"] == usuario["id"]:
+            sessao["perfil"] = usuario["perfil"]
+    return {"access_token": emitir_token(usuario["id"], usuario["empresaId"], usuario["perfil"], _minutos() * 60),
+            "token_type": "Bearer", "expires_in": _minutos() * 60,
+            "context": {"sub": usuario["id"], "tenant_id": usuario["empresaId"], "view_mode": "SINGLE",
+                        "active_scope": pedido.target_scope, "roles": [], "permissions": []}}
+
+
+@app.post("/api/v1/auth/refresh", summary="Renova o token (mesmo formato do Identity-Service)")
+async def renovar(pedido: Renovacao):
+    sessao = _SESSOES.pop(pedido.refresh_token, None)
+    usuario = _usuario_por("id", sessao["usuarioId"]) if sessao else None
+    if usuario is None:
+        raise _erro_auth(401, "ERR-AUTH-004", "Sessão expirada. Faça login de novo.")
+    token = (emitir_token(usuario["id"], usuario["empresaId"], usuario["perfil"], _minutos() * 60)
+             if sessao["perfil"] else _token_sem_contexto(usuario))
+    return {"access_token": token, "token_type": "Bearer", "expires_in": _minutos() * 60,
+            "refresh_token": _nova_sessao(usuario, sessao["perfil"]), "refresh_expires_in": 604800}
+
+
+@app.post("/api/v1/auth/logout", status_code=204, summary="Encerra a sessão")
+async def logout():
+    return Response(status_code=204)

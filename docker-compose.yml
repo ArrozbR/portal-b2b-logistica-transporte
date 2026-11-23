@@ -208,6 +208,10 @@ services:
       dockerfile: infra/portal/Dockerfile
     image: grupo5/portal-dev:latest
     restart: unless-stopped
+    environment:
+      # Login das telas (D28): o usuarios-falso, ou o Identity-Service real, por exemplo
+      # AUTH_URL=https://identity.matheus-alves.dev (junto com AUTH_JWKS_URL dos serviços).
+      AUTH_URL: ${AUTH_URL:-http://usuarios-falso:8101}
     ports:
       - "8088:80"
     depends_on:
