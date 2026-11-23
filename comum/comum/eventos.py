@@ -24,6 +24,11 @@ from .logs import agora_iso, correlation_id
 
 VERSAO_EVENTO = "1.0"
 CAMPOS_ENVELOPE = ("eventId", "eventType", "timestamp", "source", "aggregateId", "payload")
+# Limites das colunas: processed_events.event_id é VARCHAR(64) e correlation_id é VARCHAR(128),
+# o máximo que o grupo de Pedidos aceita (ESP-PED-001). Um valor maior falharia ao gravar e,
+# antes desta conferência, travava o consumidor (a DLT tentava gravar o mesmo eventId para sempre).
+MAX_EVENT_ID = 64
+MAX_CORRELATION_ID = 128
 
 
 class EventoInvalido(Exception):
@@ -56,6 +61,12 @@ def validar_envelope(envelope: object) -> dict:
         raise EventoInvalido(f"Envelope sem os campos: {', '.join(faltando)}")
     if not isinstance(envelope["payload"], dict):
         raise EventoInvalido("O campo payload precisa ser um objeto")
+    evento_id = envelope["eventId"]
+    if not isinstance(evento_id, str) or not evento_id.strip() or len(evento_id) > MAX_EVENT_ID:
+        raise EventoInvalido(f"eventId precisa ser um texto de 1 a {MAX_EVENT_ID} caracteres")
+    correlacao = envelope.get("correlationId")
+    if correlacao is not None and (not isinstance(correlacao, str) or len(correlacao) > MAX_CORRELATION_ID):
+        raise EventoInvalido(f"correlationId precisa ser um texto de até {MAX_CORRELATION_ID} caracteres")
     return envelope
 
 

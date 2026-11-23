@@ -93,3 +93,27 @@ def test_mensagem_que_nem_e_json_vai_para_a_dlt_com_o_texto_recebido():
     [dlt] = banco.outbox
     assert dlt["chave"] == "desconhecido"
     assert dlt["envelope"]["payload"]["originalEvent"] == "isto nao e json"
+
+
+def test_event_id_grande_demais_vai_para_a_dlt_sem_travar():
+    """eventId maior que a coluna (64) travava o consumidor: a DLT tentava gravá-lo para sempre."""
+    async def nunca_chamado(conn, envelope):
+        raise AssertionError("não deveria processar")
+
+    banco, c = consumidor(nunca_chamado)
+    for evento_id in ("e" * 65, None, "", 123):
+        original = evento() | {"eventId": evento_id}
+        assert asyncio.run(c.processar("pedido_criado", json.dumps(original).encode())) == "dlt"
+    assert len(banco.outbox) == 4
+    assert all(d["chave"] == "desconhecido" and "eventId" in d["envelope"]["payload"]["error"] for d in banco.outbox)
+
+
+def test_chave_da_dlt_cabe_na_coluna():
+    """aggregateId de até 128 (limite do grupo de Pedidos) numa coluna de 100: a DLT travava."""
+    async def fora_do_contrato(conn, envelope):
+        raise EventoInvalido("payload inválido")
+
+    banco, c = consumidor(fora_do_contrato)
+    original = evento() | {"aggregateId": "a" * 128}
+    assert asyncio.run(c.processar("pedido_criado", json.dumps(original).encode())) == "dlt"
+    assert banco.outbox[0]["chave"] == "a" * 100

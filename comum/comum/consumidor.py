@@ -134,7 +134,8 @@ class ConsumidorIdempotente:
     async def _enviar_dlt(self, topico: str, envelope: dict | None, valor_bruto: bytes | None,
                           erro: str, tentativa: int, pilha: str) -> None:
         payload = montar_payload_dlt(topico, envelope, valor_bruto, erro, tentativa, pilha)
-        chave = (envelope or {}).get("aggregateId") or "desconhecido"
+        # A chave vai para outbox.chave (VARCHAR(100)): um aggregateId maior travaria a gravação da DLT.
+        chave = str((envelope or {}).get("aggregateId") or "desconhecido")[:100]
         id_correlacao = (envelope or {}).get("correlationId")
         while True:  # a DLT também passa pela outbox; insiste até o banco aceitar
             try:

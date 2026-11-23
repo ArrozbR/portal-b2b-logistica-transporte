@@ -99,3 +99,13 @@ def test_script_de_pedido_falso_gera_pedido_dentro_do_contrato():
         peso=28000.0, produto="Milho", produto_id="prod-milho", valor=50000.0,
         comprador="emp-1", fornecedor="emp-2")
     assert erros_do_payload("pedido_criado", montar_payload(args)) == []
+
+
+def test_envelope_confere_o_tamanho_do_event_id_e_do_correlation_id():
+    base = montar_envelope("pedido_criado", "teste", "ped-1", {"pedidoId": "ped-1"}, "c" * 128)
+    assert validar_envelope(base) is base                       # 128: limite do grupo de Pedidos
+    for mudanca in ({"eventId": "e" * 65}, {"eventId": None}, {"eventId": "  "}, {"eventId": 7},
+                    {"correlationId": "c" * 129}, {"correlationId": 42}):
+        with pytest.raises(EventoInvalido):
+            validar_envelope(base | mudanca)
+    assert validar_envelope(base | {"correlationId": None})["correlationId"] is None
