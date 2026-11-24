@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from logistica.api import AjusteDoRelogio, NovaOcorrencia, PedidoDeEscolha
 from logistica.notificacoes import (texto_cotacoes_disponiveis, texto_frete_escolhido, texto_frete_indisponivel,
-                                    texto_sem_cotacao)
+                                    texto_ocorrencia, texto_sem_cotacao)
 
 PRAZO = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)  # 09:00 em Brasília
 
@@ -52,6 +52,20 @@ def test_descricao_da_ocorrencia_conta_sem_os_espacos_das_pontas(descricao, acei
     else:
         with pytest.raises(ValidationError):
             NovaOcorrencia(descricao=descricao)
+
+
+def test_tipo_da_ocorrencia_e_opcional_e_vale_outro():
+    assert NovaOcorrencia(descricao="Carga molhada").tipo == "OUTRO"
+    assert NovaOcorrencia(descricao="Carga molhada", tipo="AVARIA").tipo == "AVARIA"
+    with pytest.raises(ValidationError):
+        NovaOcorrencia(descricao="Carga molhada", tipo="Avaria na carga")  # o nome não vale, só o código
+
+
+def test_texto_da_ocorrencia_traz_o_tipo():
+    titulo, mensagem = texto_ocorrencia("ped-1", "comprador", "Lona rasgada", "AVARIA")
+    assert titulo == "Ocorrência na entrega"
+    assert mensagem.startswith("O comprador reportou uma ocorrência (avaria na carga) na entrega do pedido ped-1")
+    assert "(" not in texto_ocorrencia("ped-1", "fornecedor", "Outra coisa")[1]  # OUTRO não aparece
 
 
 def test_textos_das_notificacoes():

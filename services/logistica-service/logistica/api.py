@@ -78,6 +78,7 @@ class PedidoDeEscolha(BaseModel):
 
 
 TipoDocumento = Literal["cte", "romaneio", "nota-fiscal", "comprovante-coleta"]
+TipoOcorrencia = Literal["ATRASO", "AVARIA", "DESVIO_ROTA", "OUTRO"]
 
 
 class NovaOcorrencia(BaseModel):
@@ -85,6 +86,8 @@ class NovaOcorrencia(BaseModel):
     # mínimo de 5 caracteres e era gravado como texto vazio.
     descricao: Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=500)] = Field(
         ..., description="O que aconteceu (5 a 500 caracteres, sem contar espaços nas pontas)")
+    # Opcional, para quem já chamava a rota só com a descrição: sem tipo, vale OUTRO.
+    tipo: TipoOcorrencia = Field("OUTRO", description="ATRASO, AVARIA (avaria na carga), DESVIO_ROTA ou OUTRO")
 
 
 class AjusteDoRelogio(BaseModel):
@@ -330,7 +333,7 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
             """, (entrega_id,))
             hora = await logistica.relogio.agora(conn)
             ocorrencias = await buscar_todos(conn, """
-                SELECT id, autor_papel, descricao, ocorrida_em FROM logistica.ocorrencia
+                SELECT id, autor_papel, tipo, descricao, ocorrida_em FROM logistica.ocorrencia
                  WHERE entrega_id = %s ORDER BY ocorrida_em
             """, (entrega_id,))
         posicao = ({"lat": float(e["posicao_lat"]), "lon": float(e["posicao_lon"])}
@@ -392,17 +395,18 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
                                f"A entrega está {entrega['status']} e não aceita ocorrências.")
             hora = await logistica.relogio.agora(conn)
             linha = await buscar_um(conn, """
-                INSERT INTO logistica.ocorrencia (id, entrega_id, pedido_id, autor_id, autor_papel, descricao, ocorrida_em)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id, autor_papel, descricao, ocorrida_em
+                INSERT INTO logistica.ocorrencia (id, entrega_id, pedido_id, autor_id, autor_papel, tipo, descricao,
+                                                  ocorrida_em)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, autor_papel, tipo, descricao, ocorrida_em
             """, (str(uuid.uuid4()), entrega_id, entrega["pedido_id"], usuario.id, usuario.perfil,
-                  corpo.descricao, hora))
+                  corpo.tipo, corpo.descricao, hora))
             await conn.execute("UPDATE logistica.entrega SET com_ocorrencia = TRUE, atualizado_em = now() "
                                "WHERE id = %s", (entrega_id,))
             outro = (entrega["fornecedor_id"], "fornecedor") if usuario.perfil == "comprador" \
                 else (entrega["comprador_id"], "comprador")
             await notificar(conn, empresa_id=outro[0], papel=outro[1], tipo="OCORRENCIA",
-                            texto=texto_ocorrencia(entrega["pedido_id"], usuario.perfil, corpo.descricao),
+                            texto=texto_ocorrencia(entrega["pedido_id"], usuario.perfil, corpo.descricao, corpo.tipo),
                             pedido_id=entrega["pedido_id"], solicitacao_id=entrega["solicitacao_id"], agora=hora)
         return linha_para_json(linha)
 
@@ -411,7 +415,7 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
         async with db.transacao() as conn:
             await obter_entrega_visivel(conn, entrega_id, usuario)
             linhas = await buscar_todos(conn, """
-                SELECT id, autor_papel, descricao, ocorrida_em FROM logistica.ocorrencia
+                SELECT id, autor_papel, tipo, descricao, ocorrida_em FROM logistica.ocorrencia
                  WHERE entrega_id = %s ORDER BY ocorrida_em
             """, (entrega_id,))
         return {"items": [linha_para_json(l) for l in linhas]}

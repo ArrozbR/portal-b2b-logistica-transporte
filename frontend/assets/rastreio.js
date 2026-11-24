@@ -88,12 +88,15 @@
         <strong>${escapar(e.veiculo_placa || 'A definir')}</strong><div class="sub">${formato.veiculo(e.veiculo_tipo)}</div></div></div>`;
   }
 
+  // Tipos de ocorrência da API-15 (os mesmos do mockup do grupo de UX).
+  const TIPOS_OCORRENCIA = { ATRASO: 'Atraso', AVARIA: 'Avaria na carga', DESVIO_ROTA: 'Desvio de rota', OUTRO: 'Outro' };
+
   // ------------------------------------------------------------------ linha do tempo
   function linhaDoTempo(e, r) {
     // Ocorrências reportadas por comprador ou fornecedor entram na linha do tempo, na ordem do horário.
     const ocorrencias = (r.ocorrencias || []).map((o) => ({
       tipo: 'OCORRENCIA', ocorrido_em: o.ocorrida_em,
-      descricao: `Reportada pelo ${o.autor_papel}: ${o.descricao}`,
+      descricao: `${o.tipo && o.tipo !== 'OUTRO' ? `${TIPOS_OCORRENCIA[o.tipo] || o.tipo} · ` : ''}Reportada pelo ${o.autor_papel}: ${o.descricao}`,
     }));
     const eventos = [...r.eventos.filter((ev, i, todos) => ev.tipo !== 'POSICAO' || todos.findIndex((x) => x.tipo === 'POSICAO') === i),
       ...ocorrencias].sort((a, b) => new Date(a.ocorrido_em) - new Date(b.ocorrido_em));
@@ -171,15 +174,25 @@
   function reportarOcorrencia() {
     Portal.modal({
       titulo: 'Reportar ocorrência',
-      conteudo: `<p class="suave" style="margin-top:0">Descreva o problema (avaria, atraso sem aviso, divergência na carga...).
-        A outra parte do pedido é avisada.</p>
-        <div class="campo"><label for="ocorrencia">O que aconteceu? <span class="obrigatorio">*</span></label>
-        <textarea id="ocorrencia" maxlength="500" minlength="5"></textarea></div><div id="erro-modal"></div>`,
+      conteudo: `<p class="suave" style="margin-top:0">A outra parte do pedido é avisada.</p>
+        <div class="campo" id="c-tipo-ocorrencia"><label for="tipo-ocorrencia">Tipo de ocorrência <span class="obrigatorio">*</span></label>
+        <select id="tipo-ocorrencia" required><option value="">Selecione…</option>
+          ${Object.entries(TIPOS_OCORRENCIA).map(([valor, nome]) => `<option value="${valor}">${nome}</option>`).join('')}</select></div>
+        <div class="campo" id="c-ocorrencia"><label for="ocorrencia">O que aconteceu? <span class="obrigatorio">*</span></label>
+        <textarea id="ocorrencia" maxlength="500" minlength="5" placeholder="De 5 a 500 caracteres"></textarea></div><div id="erro-modal"></div>`,
       botoes: [{ texto: 'Cancelar' }, {
         texto: 'Enviar', classe: 'primario', async acao(janela) {
+          const tipo = janela.querySelector('#tipo-ocorrencia').value;
+          const descricao = janela.querySelector('#ocorrencia').value.trim();
+          const erro = janela.querySelector('#erro-modal');
+          if (!tipo || descricao.length < 5) {
+            erro.innerHTML = `<div class="aviso erro" role="alert">${!tipo ? 'Selecione o tipo de ocorrência.' : 'Descreva a ocorrência com pelo menos 5 caracteres.'}</div>`;
+            janela.querySelector(!tipo ? '#tipo-ocorrencia' : '#ocorrencia').focus();
+            return false;
+          }
           try {
             await api(`/api/v1/logistica/entregas/${encodeURIComponent(entregaId)}/ocorrencias`, {
-              metodo: 'POST', corpo: { descricao: janela.querySelector('#ocorrencia').value.trim() },
+              metodo: 'POST', corpo: { tipo, descricao },
             });
             Portal.avisoRapido('Ocorrência registrada.');
             carregar();

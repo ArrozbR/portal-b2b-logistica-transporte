@@ -1,5 +1,9 @@
 /* Portal B2B · Logística — estilo baseado no mockup do grupo de UX/UI */
 
+/* O atributo hidden sempre esconde: sem isto, uma classe com display (o contador do sino, os botões)
+   vencia o hidden, e o sino mostrava "0" depois de marcar todas como lidas. */
+[hidden] { display: none !important; }
+
 :root {
   --verde: #84cc16;
   --verde-escuro: #4d7c0f;

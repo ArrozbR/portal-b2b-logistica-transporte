@@ -80,9 +80,20 @@ def texto_entrega_realizada(pedido_id: str, entregue_em: datetime, no_prazo: boo
             f"O pedido {pedido_id} foi entregue em {data_hora(entregue_em)}, {situacao}.")
 
 
-def texto_ocorrencia(pedido_id: str, quem: str, descricao: str) -> tuple[str, str]:
+# Nome de cada tipo de ocorrência (API-15), como aparece na tela e na notificação.
+TIPOS_OCORRENCIA = {
+    "ATRASO": "Atraso",
+    "AVARIA": "Avaria na carga",
+    "DESVIO_ROTA": "Desvio de rota",
+    "OUTRO": "Outro",
+}
+
+
+def texto_ocorrencia(pedido_id: str, quem: str, descricao: str, tipo: str = "OUTRO") -> tuple[str, str]:
+    # "Outro" não acrescenta nada à frase; os demais tipos aparecem entre parênteses.
+    qual = "" if tipo == "OUTRO" else f" ({TIPOS_OCORRENCIA[tipo].lower()})"
     return ("Ocorrência na entrega",
-            f"O {quem} reportou uma ocorrência na entrega do pedido {pedido_id}: \"{descricao[:200]}\"")
+            f"O {quem} reportou uma ocorrência{qual} na entrega do pedido {pedido_id}: \"{descricao[:200]}\"")
 
 
 async def notificar(conn: AsyncConnection, *, empresa_id: str, papel: str, tipo: str, texto: tuple[str, str],
