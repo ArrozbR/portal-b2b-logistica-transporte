@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-LOG-001 |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `logistica-service`: solicitação de frete, escolha do frete, entrega e rastreio. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -205,7 +205,7 @@ Internos (não aparecem na API): `rodada_ate` (hora real da abertura + 10 s), `c
 | transportadora_id | string | Sim | Da cotação. |
 | transportadora_nome | string ou `null` | Não | Da cotação; atualizado por `VIAGEM_ALOCADA`. |
 | transportadora_telefone | string ou `null` | Não | `VIAGEM_ALOCADA`. |
-| motorista_nome, motorista_telefone, motorista_cnh_mascarada | string ou `null` | Não | `VIAGEM_ALOCADA`. A CNH chega mascarada (`"*******3465"`); o número completo nunca entra neste serviço. |
+| motorista_nome, motorista_telefone, motorista_cnh_mascarada | string ou `null` | Não | `VIAGEM_ALOCADA`. A CNH chega mascarada (`"*******3465"`); o número completo nunca entra neste serviço. Telefone e CNH saem na API conforme o perfil (RN-37). |
 | veiculo_placa, veiculo_tipo | string ou `null` | Não | `VIAGEM_ALOCADA`. |
 | coleta_prevista, coletada_em, previsao_chegada, entregue_em, posicao_em | instante ou `null` | Não | Eventos de rastreio. |
 | prazo_prometido | data ou `null` | Não | `data_entrega_prevista` da cotação escolhida. |
@@ -610,7 +610,8 @@ Parâmetros: `status` (opcional, um dos 6 status da entrega), `incluir_recusadas
   "distancia_km": 2091.1
 }
 ```
-- A rota real tem 60 pontos; o exemplo mostra 3.
+- A rota segue as estradas (ESP-TRP-001, RN-25) e tem tantos pontos quanto o traçado; o exemplo mostra 3.
+- `motorista_telefone` e `motorista_cnh_mascarada` dependem do perfil (RN-37): o exemplo é o do admin; para o fornecedor, a CNH é `null`; para o comprador, os dois são `null`.
 - Antes do `VIAGEM_ALOCADA`: campos de motorista, veículo, coleta, posição e `rota` são `null`, `progresso` é 0 e `status` é `"AGUARDANDO_ALOCACAO"`.
 - `preco_frete` e `prazo_dias` vêm da cotação da entrega.
 
@@ -806,7 +807,7 @@ Envelope comum:
 
 | Tópico | Quando | Chave de partição (`aggregateId`) | Payload |
 |---|---|---|---|
-| `solicitacao_frete_criada` | Solicitação aberta (RF-01) | `solicitacaoFreteId` | `solicitacaoFreteId`, `pedidoId`, `produtoId`, `produtoNome`, `compradorId`, `fornecedorId`, `tipoCarga`, `pesoKg`, `origem` e `destino` (`cidade`, `uf`, `lat`, `lon`), `distanciaKm`, `dataColetaPrevista`, `prazoDecisaoEm`, `status` (`"ABERTA"`) |
+| `solicitacao_frete_criada` | Solicitação aberta (RF-01) | `solicitacaoFreteId` | `solicitacaoFreteId`, `pedidoId`, `produtoId`, `produtoNome`, `compradorId`, `fornecedorId`, `tipoCarga`, `pesoKg`, `origem` e `destino` (`cidade`, `uf`, `lat`, `lon`), `distanciaKm`, `dataColetaPrevista`, `prazoDecisaoEm`, `dataEntregaDesejada` (data ou `null`, do pedido), `rodada`, `status` (`"ABERTA"`) |
 | `frete_selecionado` | Escolha (RF-06, RF-07, RF-08) ou troca de transportadora (RF-12) | `pedidoId` | `pedidoId`, `solicitacaoFreteId`, `entregaId`, `tentativa`, `cotacaoId`, `transportadoraId`, `preco`, `prazoDias`, `dataEntregaPrevista` (data ou `null`), `criterio`, `status` (`"FRETE_SELECIONADO"`) |
 | `frete_indisponivel` | Sem cotação no prazo (RF-04) ou sem transportadora com frota (RF-12) | `pedidoId` | `pedidoId`, `solicitacaoFreteId`, `motivo` (`"SEM_COTACAO"` ou `"SEM_TRANSPORTADORA_DISPONIVEL"`), `detalhe`, `ocorridoEm` (hora do módulo) |
 | `entrega_concluida` | Rastreio `ENTREGA_REALIZADA` aplicado (RF-11) | `pedidoId` | `pedidoId`, `entregaId`, `transportadoraId`, `entregueEm` (`ocorridoEm` do rastreio), `prazoPrometido` (data ou `null`), `noPrazo`, `atrasoHoras` |
@@ -1387,7 +1388,7 @@ Os rastreios abaixo são publicados pelo QA para E-2, com `pedidoId` `"PED-1002"
 Cenário: Viagem alocada
   Dado E-2 com status "AGUARDANDO_ALOCACAO"
   Quando é publicado o rastreio sequencia 1, tipo "VIAGEM_ALOCADA", descricao "Motorista Ana Teste e veículo TST1A23 escalados.", motorista {"nome": "Ana Teste", "telefone": "(41) 90000-0001", "cnhMascarada": "*******0001"}, veiculo {"placa": "TST1A23", "tipo": "CARRETA_FRIGORIFICA"}, transportadora {"nome": "Teste A", "telefone": "(41) 4000-0000"}, rota [[-12.5453, -55.7114], [-23.9608, -46.3336]], posicao {"lat": -12.5453, "lon": -55.7114}, coletaPrevista "2026-11-11T09:00:00.000Z", previsaoChegada "2026-11-19T17:00:00.000Z" e ocorridoEm "2026-11-10T13:00:00.000Z"
-  Então a API-09 de E-2 retorna status "AGUARDANDO_COLETA", motorista_nome "Ana Teste", motorista_cnh_mascarada "*******0001", veiculo_placa "TST1A23", transportadora_nome "Teste A", transportadora_telefone "(41) 4000-0000", coleta_prevista "2026-11-11T09:00:00.000Z", previsao_chegada "2026-11-19T17:00:00.000Z", progresso 0.0, posicao_lat -12.5453 e rota com 2 pontos
+  Então a API-09 de E-2, consultada por U-ADM, retorna status "AGUARDANDO_COLETA", motorista_nome "Ana Teste", motorista_cnh_mascarada "*******0001", veiculo_placa "TST1A23", transportadora_nome "Teste A", transportadora_telefone "(41) 4000-0000", coleta_prevista "2026-11-11T09:00:00.000Z", previsao_chegada "2026-11-19T17:00:00.000Z", progresso 0.0, posicao_lat -12.5453 e rota com 2 pontos
   E a API-10 retorna eventos com 1 item: sequencia 1, tipo "VIAGEM_ALOCADA"
 
 # CA-45
@@ -1497,11 +1498,24 @@ Cenário: Detalhe, rastreio e entrega do pedido
   E a API-09 de E-2 tem motorista_nome null, veiculo_placa null, rota null e progresso 0.0
   Dado E-1 depois do VIAGEM_ALOCADA
   Quando U-COMP consulta a API-09, a API-10 de E-1 e a API-11 de "PED-1001"
-  Então as respostas são 200 com os campos dos exemplos da API-09, da API-10 e da API-09, respectivamente
+  Então as respostas são 200 com os campos dos exemplos da API-09, da API-10 e da API-09, respectivamente, menos motorista_telefone e motorista_cnh_mascarada, que são null para U-COMP (RN-37)
   Quando U-COMP2 consulta a API-09 ou a API-10 de E-1, ou U-COMP consulta a API-11 de "PED-9999"
   Então a resposta é 404 com codigo "ENTREGA_NAO_ENCONTRADA"
   Quando U-TRANSP consulta a API-09 de E-1
   Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
+
+# CA-91
+Cenário: Dados do motorista conforme o perfil
+  Dado E-1 depois do VIAGEM_ALOCADA (Roberto Nunes, telefone "(66) 99544-3322", CNH "*******3465")
+  Quando U-ADM consulta a API-09 de E-1
+  Então motorista_nome é "Roberto Nunes", motorista_telefone "(66) 99544-3322" e motorista_cnh_mascarada "*******3465"
+  Quando U-FORN consulta a API-09 de E-1 ou a API-11 de "PED-1001"
+  Então motorista_nome é "Roberto Nunes", motorista_telefone "(66) 99544-3322" e motorista_cnh_mascarada null
+  Quando U-COMP consulta a API-09 de E-1 ou a API-11 de "PED-1001"
+  Então motorista_nome é "Roberto Nunes", motorista_telefone null e motorista_cnh_mascarada null, e transportadora_telefone continua preenchido
+  Dado E-1 depois do COLETA_REALIZADA
+  Quando U-COMP pede a API-16 de E-1 com tipo comprovante-coleta
+  Então o texto do PDF mostra "Roberto Nunes (CNH -)", e o mesmo documento pedido por U-ADM mostra "(CNH *******3465)"
 ```
 
 ### RF-14 — Relógio do módulo
@@ -1835,6 +1849,7 @@ Cenário: Nenhuma transportadora com frota, abre a rodada seguinte
 | RN-17 | A escolha grava, na mesma transação: status `SELECIONADA`, `cotacao_escolhida_id`, `criterio`, `escolhida_por`, `escolhida_em` (hora do módulo); uma entrega com `tentativa` 1, status `AGUARDANDO_ALOCACAO` e `prazo_prometido` = `data_entrega_prevista` da cotação; e o `frete_selecionado` na outbox. | CA-21, CA-22. |
 | RN-18 | Quando `agora ≥ prazo_decisao_em` e a solicitação está `COTADA`, a rotina de prazos aplica a regra automática com `criterio` `AUTOMATICO_MENOR_PRECO` e `escolhida_por` `null`. Com duas cópias, cada solicitação é tratada por uma só (`FOR UPDATE SKIP LOCKED`). | CA-37. |
 | RN-19 | Visibilidade (glossário). O que não é visível responde 404, como se não existisse. As listas só contam o que é visível. | U-COMP2 não vê S-1. |
+| RN-37 | Dados pessoais do motorista conforme o perfil (API-09, API-11 e documentos da API-16): o admin vê `motorista_telefone` e `motorista_cnh_mascarada`; o fornecedor vê o telefone (combina a coleta com o motorista), e a CNH sai `null`; o comprador não vê nenhum dos dois (sai `null`), como no mockup do grupo de UX, e fala com a transportadora pelo `transportadora_telefone`. O nome do motorista, a placa e o veículo aparecem para todos. | CA-91. |
 | RN-20 | Cancelamento: só age se `novoStatus` (ou, na falta, `status`) for `CANCELADO`, sem diferenciar maiúsculas. Solicitação aberta → `CANCELADA`. Entregas ativas do pedido → `CANCELADA`. Solicitação `SELECIONADA` continua `SELECIONADA`. Outros status do pedido são ignorados, sem DLT. | CA-41 a CA-43. |
 | RN-21 | Rastreio: entrega desconhecida → DLT `"Entrega desconhecida: <id>"`. `sequencia` ≤ última aplicada → ignorado. Entrega encerrada → ignorado. O evento ignorado não é gravado e não vai à DLT. A comparação de sequência vem antes da de status. | CA-46, CA-49. |
 | RN-22 | Efeito de cada `tipo` de rastreio aplicado: `VIAGEM_ALOCADA` → status `AGUARDANDO_COLETA`, grava motorista, veículo, `rota`, `coleta_prevista`, `previsao_chegada`, posição e `posicao_em` = `ocorridoEm`, `progresso` 0, e o nome e o telefone da transportadora se vierem; `COLETA_REALIZADA` → `EM_TRANSITO`, `coletada_em` = `ocorridoEm`, posição se vier; `POSICAO`, `PARADA` e `PREVISAO_ATUALIZADA` → posição, `posicao_em`, `progresso` e `previsao_chegada`; `OCORRENCIA` → `com_ocorrencia` = true; `ENTREGA_REALIZADA` → `ENTREGUE`, `entregue_em` = `ocorridoEm`, `no_prazo`, `atraso_horas`, `progresso` 1 e posição; `VIAGEM_RECUSADA` → RN-23. Todo rastreio aplicado é gravado em `eventos` (API-10). | CA-44 a CA-48. |
@@ -2017,7 +2032,7 @@ O pedido de teste é criado pelo `pedidos-falso` (`POST /api/v1/pedidos-falso/pe
 | RF-21 | RN-11, RN-24, RN-36 | Rotina de prazos, `rastreio_atualizado`, `frete_indisponivel`, `solicitacao_frete_criada`, API-04, API-11 | CA-87, CA-88 |
 | RF-11 | RN-21, RN-22, RN-25 | `rastreio_atualizado`, `entrega_concluida`, API-09, API-10 | CA-44 a CA-50 |
 | RF-12 | RN-23, RN-24 | `rastreio_atualizado`, `frete_selecionado`, `frete_indisponivel`, API-08, API-11 | CA-51 a CA-53 |
-| RF-13 | RN-19, RN-28, RN-29 | API-08 a API-11 | CA-54, CA-55 |
+| RF-13 | RN-19, RN-28, RN-29, RN-37 | API-08 a API-11 | CA-54, CA-55, CA-91 |
 | RF-14 | RN-27 | API-12, API-13, `relogio_ajustado` | CA-56 a CA-59 |
 | RF-15 | — | API-01 a API-03 | CA-60. Sem CA de erro: rotas públicas sem entrada |
 | RF-16 | RN-30 | Todos os tópicos consumidos, `logistica.dlt` | CA-61, CA-62 (e CA-02, CA-04, CA-05, CA-11, CA-43, CA-50) |
@@ -2086,6 +2101,7 @@ Q-03, Q-04, Q-05 e Q-11 têm decisão tomada e implementada; o que falta é a co
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.7 | 2026-11-23 | Grupo 5 | Telefone e CNH do motorista conforme o perfil (RN-37, CA-91; CA-44 e CA-55 ajustados). `dataEntregaDesejada` no `solicitacao_frete_criada` (§7.4), para a transportadora ver o prazo do comprador. Rota da entrega pelas estradas (ESP-TRP-001 1.4). |
 | 1.6 | 2026-11-23 | Grupo 5 | Botão "Marcar todas como lidas" no sino: rota nova API-19 (RF-17, RN-32, CA-89). Tipo da ocorrência (`ATRASO`, `AVARIA`, `DESVIO_ROTA`, `OUTRO`), pedido pela versão publicada do mockup do grupo de UX: opcional na API-15 (padrão `OUTRO`), devolvido na API-14 e na API-10 e citado na notificação (§6.1, RN-33, CA-90; migração 008). CA-01 a CA-88 sem mudança. |
 | 1.5 | 2026-11-23 | Grupo 5 | Correções da caça aos bugs (explicação 13). RN-30: `eventId` fora de 1 a 64 caracteres ou `correlationId` acima de 128 vão direto à DLT (antes, travavam o consumidor); `correlationId` de até 128 caracteres é aceito, como no grupo de Pedidos (antes, o pedido ia para a DLT). RN-15: a solicitação entra na chave de idempotência (antes, a mesma chave em outra solicitação devolvia a resposta da primeira) e a chave é um resumo de tamanho fixo (antes, com id de usuário UUID e chave de 100 caracteres, a escolha respondia 500). RN-32: o comprador é avisado também quando o admin escolhe por ele. |
 | 1.4 | 2026-11-23 | Grupo 5 | Resposta ao grupo de Pedidos (issue #1, ESP-PED-001 v2.1). Frete indisponível não cancela o pedido: abre uma nova rodada para o mesmo pedido (D27; RF-21, RN-36, CA-87, CA-88, Q-14), com o campo `rodada` na solicitação e no `solicitacao_frete_criada` e a `tentativa` única por solicitação. Fechamento do leilão definido por eles (`VENDA_CONCLUIDA` e `AGUARDANDO_FRETE`, Q-13). Tabela de cidades de 35 para 132, com as 27 capitais (RN-01, Apêndice A); a parada do cenário da ESP-TRP-001 continua em Jataí. RN-05, RN-11, RN-24, RN-29 e §6.2 ajustados. |

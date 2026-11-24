@@ -20,8 +20,8 @@ Situações:
 | D6 | O que é a comparação | Cotações lado a lado e ranking de desempenho | Aceita |
 | D7 | Transportadoras reais ou simuladas | Simuladas | Aceita |
 | D8 | De onde vem a posição do caminhão | Simulador no `transportadoras-service` | Aceita |
-| D9 | Rota no mapa | Linha interpolada; estrada como extra | Aceita |
-| D10 | Atualização da tela | Posição muda a cada 30 s; a tela consulta a cada 5 s | Aceita |
+| D9 | Rota no mapa | Pelas estradas: trechos do OSRM entre cidades vizinhas, gravados no repositório; linha reta só sem caminho | Mudou em 23/11/2026, a pedido do professor (antes: linha reta) |
+| D10 | Atualização da tela | Posição muda a cada 30 min do módulo (entre 2 s e 30 s reais); a tela consulta a cada 5 s, ou 2 s acelerado | Ajustada em 23/11/2026 (antes: 30 s reais fixos) |
 | D11 | Quem faz as telas | Nós, seguindo o mockup do UX | Aceita |
 | D12 | Fim e falha da entrega | Tópicos novos `rastreio_atualizado`, `entrega_concluida` e `frete_indisponivel` | Aceita, depende da Infra (P3) |
 | D13 | Banco e Kafka consistentes | Outbox transacional | Aceita |
@@ -110,13 +110,29 @@ Implementado na etapa 4: tela de comparação (cartões, selos, pontualidade, gr
 
 ### D9. Rota no mapa
 
-**Decisão:** linha interpolada entre origem e destino. Rota por estrada (OSRM) fica como extra.
+**Decisão (23/11/2026):** a rota segue as estradas. A ferramenta `comum/ferramentas/gerar_estradas.py` pediu ao OSRM (motor de rotas sobre o OpenStreetMap), uma vez só, o traçado entre cada cidade da tabela e as suas 5 vizinhas mais próximas, e gravou o resultado em `comum/comum/dados/estradas.json`. A rota de uma viagem é o caminho mais curto, em km de estrada, por esses trechos. Sem caminho (cidade isolada), volta a ser a linha reta.
+
+**Por que mudou:** o professor achou a linha reta pouco real.
+
+**Por que não chamar o OSRM a cada viagem:** a demonstração ficaria dependendo de internet e de um servidor público com limite de uso. Com o arquivo no repositório, a rota é a mesma sempre e não sai nada da rede da turma.
+
+**O que não mudou:** o preço e o prazo continuam usando a distância estimada (linha reta × 1,3, D15), para não mudar os valores das especificações. Na rota do cenário, Sorriso a Santos, a estrada tem 2.115 km, e a estimativa, 2.091 km (1% de diferença); em outras rotas, a diferença passa de 20% (Rio Verde a Paranaguá: 1.466 km de estrada, 1.163 km estimados).
+
+**Travessias de balsa:** quando o caminho pelas estradas é mais que o dobro da distância estimada (Belém a Macapá, por exemplo, que na vida real atravessa de balsa), a rota volta a ser a linha reta.
+
+**Antes:** linha interpolada entre origem e destino, com a estrada como extra.
 
 ### D10. Atualização da tela
 
-**Decisão:** o caminhão muda de posição a cada **30 s reais**. A tela consulta a API a cada 5 s, então mostra a nova posição em até 5 s. SSE fica como extra.
+**Decisão (ajustada em 23/11/2026):** o caminhão muda de posição a cada **30 minutos da hora do módulo**, com no mínimo 2 s e no máximo 30 s reais entre um passo e outro. A tela consulta a API a cada 5 s, ou a cada 2 s com o relógio acelerado, e atualiza na hora quando o administrador muda a velocidade. SSE fica como extra.
 
-Consequência para a apresentação: com o relógio acelerado (D18) para que os 3 dias de viagem durem cerca de 12 minutos, o caminhão anda 24 vezes. Acelerar mais reduz o número de movimentos.
+**Por que mudou:** antes, o passo era de 30 s reais fixos. Com o relógio em 3600×, cada passo equivalia a 30 h de estrada: o caminhão saltava pelo mapa e, por até 30 s, nem o botão "Atualizar localização" tinha posição nova para mostrar.
+
+| Relógio | Passo real | Estrada por passo |
+|---|---|---|
+| 1× | 30 s | 30 s |
+| 360× | 5 s | 30 min |
+| 3600× | 2 s | 2 h |
 
 ### D11. Quem faz as telas
 

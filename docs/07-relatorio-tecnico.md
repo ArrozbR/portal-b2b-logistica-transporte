@@ -383,8 +383,8 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 ### ADR-015: Viagem calculada pelo relógio, com marco
 
 - **Contexto:** posição sem GPS; o relógio pode ser acelerado.
-- **Decisão:** a posição sai do relógio (fração do tempo entre coleta e chegada); quando o atraso aparece, o cálculo parte de um "marco" no ponto atual; rota em linha reta de 60 pontos.
-- **Consequências:** acelerar o relógio acelera a viagem sem mudar código; o caminhão nunca volta; a rota não segue estradas (limitação aceita).
+- **Decisão:** a posição sai do relógio (fração do tempo entre coleta e chegada); quando o atraso aparece, o cálculo parte de um "marco" no ponto atual. A rota segue as estradas: trechos do OSRM entre cidades vizinhas, gravados em `comum/comum/dados/estradas.json` e encadeados pelo caminho mais curto (D9, desde 23/11/2026; antes, linha reta de 60 pontos). Um passo da viagem a cada 30 min da hora do módulo, entre 2 s e 30 s reais (D10, desde 23/11/2026; antes, 30 s reais fixos).
+- **Consequências:** acelerar o relógio acelera a viagem sem mudar código; o caminhão nunca volta; o mapa mostra o caminho pelas estradas sem depender de internet. O preço continua usando a distância estimada (D15).
 
 ### ADR-016: Escala sorteada, recusa e troca
 
@@ -476,7 +476,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 
 | Limitação | Efeito | Possível evolução |
 |---|---|---|
-| Rota em linha reta, 132 cidades com coordenadas aproximadas (todas as capitais e os principais polos) | O mapa não segue estradas; cidade fora da lista vai para a DLT | Rota pelo OSRM; base do IBGE com os 5.570 municípios |
+| 132 cidades com coordenadas aproximadas (todas as capitais e os principais polos); rota pelas estradas entre elas, com o traçado gerado uma vez | Cidade fora da lista vai para a DLT; o preço usa a distância estimada, e não a da estrada | Base do IBGE com os 5.570 municípios; preço pela distância da estrada |
 | Pedido sem transportadora possível tenta para sempre | Uma nova rodada a cada 12 h do módulo, com notificação a cada vez (ADR-028) | Limite de rodadas combinado com o grupo de Pedidos |
 | Grupo de Pedidos ainda não integrado | O fluxo real depende do "Pedidos falso" | Fechar o contrato (ADR-011) |
 | Tópicos novos não aprovados | Não existem no kit | Aprovação da Infra (ADR-012) |
@@ -543,3 +543,4 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | 1.7 | 23/11/2026 | Funcionar sem os falsos (ADR-029, D28): login real nas telas, transportadora real pelo `empresa_cadastrada`; ESP-TRP-001 1.2; 158 testes unitários e 12 de integração |
 | 1.8 | 23/11/2026 | Caça aos bugs: 6 defeitos corrigidos, entre eles um evento inválido que travava o consumidor e pedidos com `correlationId` longo perdidos ([explicação 13](explicacoes/13-caca-aos-bugs.md)); ESP-LOG-001 1.5, ESP-TRP-001 1.3; 169 testes unitários e 12 de integração |
 | 1.9 | 23/11/2026 | Ajustes de tela pedidos pelo grupo e pelo mockup publicado do UX: atualizar a localização com limite, marcar todas as notificações como lidas (API-19), tipo da ocorrência e linha do tempo centralizada ([explicação 15](explicacoes/15-ajustes-de-tela-e-tipo-de-ocorrencia.md)); ESP-LOG-001 1.6; 171 testes unitários e 14 de integração |
+| 2.0 | 23/11/2026 | Rota pelas estradas, a pedido do professor (D9, ADR-015); passo da viagem pela hora do módulo, corrigindo o relógio acelerado (D10); telefone e CNH do motorista conforme o perfil, validade da cotação só com a data e entrega desejada na tela da transportadora ([explicação 16](explicacoes/16-rota-pelas-estradas-e-relogio-acelerado.md)); ESP-LOG-001 1.7, ESP-TRP-001 1.4; 183 testes unitários e 17 de integração |

@@ -249,16 +249,16 @@ Plano, calculado na escala (`transportadoras/simulacao.py`):
 | Parada | Uma parada para descanso aos 45% do caminho, com a cidade mais próxima |
 | No prazo | Entregue até 23h59 (Brasília) da data prometida |
 
-A cada **30 s reais** (D10), uma rotina nas duas cópias pega as viagens cuja hora do próximo passo chegou (`FOR UPDATE SKIP LOCKED`) e:
+A cada **30 minutos da hora do módulo**, com no mínimo 2 s e no máximo 30 s reais (D10), uma rotina nas duas cópias pega as viagens cuja hora do próximo passo chegou (`FOR UPDATE SKIP LOCKED`) e:
 
 1. calcula o progresso pelo **relógio do módulo** (seção 7), a partir de um "marco" (a coleta ou o momento em que o atraso apareceu), para o caminhão nunca voltar no mapa quando a previsão muda;
 2. publica, em ordem: `COLETA_REALIZADA`, `PARADA`, `PREVISAO_ATUALIZADA`, `POSICAO` ou `ENTREGA_REALIZADA`, conforme o caso. Se o relógio estiver tão rápido que o caminhão "pula" a parada ou o atraso num passo só, eles são publicados mesmo assim, com o horário em que teriam acontecido.
 
-A rota tem 60 pontos em linha reta entre as cidades (D9). Como a posição sai do relógio, e não de um contador de passos, acelerar o relógio acelera a viagem sem mudar o código do simulador.
+A rota segue as estradas (D9): o traçado entre cidades vizinhas foi pedido ao OSRM uma vez e está em `comum/comum/dados/estradas.json`; a viagem usa o caminho mais curto por esses trechos. Quando o relógio muda de velocidade, as viagens dão o próximo passo na hora, sem esperar o intervalo antigo. Como a posição sai do relógio, e não de um contador de passos, acelerar o relógio acelera a viagem sem mudar o código do simulador.
 
 ### 6.4 Como a tela recebe as atualizações
 
-Cada serviço roda em duas cópias no mesmo grupo de consumidores. Cada evento de rastreio chega a **uma** delas, mas a tela pode estar ligada à outra. Por isso a tela lê sempre do **banco**: chama `GET /entregas/{id}/rastreio` a cada 5 s. Não há mudança no gateway. SSE fica como extra.
+Cada serviço roda em duas cópias no mesmo grupo de consumidores. Cada evento de rastreio chega a **uma** delas, mas a tela pode estar ligada à outra. Por isso a tela lê sempre do **banco**: chama `GET /entregas/{id}/rastreio` a cada 5 s (2 s com o relógio acelerado, e na hora quando a velocidade muda). Não há mudança no gateway. SSE fica como extra.
 
 ### 6.5 Tela de rastreamento
 

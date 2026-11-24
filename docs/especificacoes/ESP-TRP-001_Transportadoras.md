@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-TRP-001 |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `transportadoras-service`: transportadoras homologadas, frota, cotação, escala e viagem simulada. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -88,11 +88,12 @@ Telas ─► gateway ─REST /api/v1/transportadoras►│ transportadoras-servi
 | Semente | O `entregaId` do `frete_selecionado`. Todo sorteio da viagem usa `random.Random(semente)`, então a mesma entrega gera sempre o mesmo resultado. |
 | Plano da viagem | Coleta = hora do módulo da escala + 2 h. Chegada planejada = o maior entre 14:00 (Brasília) da data prometida e coleta + `distancia_km ÷ (km_por_dia ÷ 24)` horas; sem data prometida, só o segundo. |
 | Atraso sorteado | Com a semente: se `random()` < `prob_atraso` da transportadora, o atraso é `arredondar(uniform(4; 36); 1)` horas; senão, 0. |
-| Progresso | Fração do caminho (0 a 1), em linha reta do último marco (coleta, ou o ponto em que o atraso apareceu) até a chegada prevista: `marco_progresso + (1 − marco_progresso) × (agora − marco_tempo) ÷ (chegada − marco_tempo)`, 4 casas. Nunca diminui. |
+| Progresso | Fração do caminho (0 a 1), proporcional ao tempo desde o último marco (coleta, ou o ponto em que o atraso apareceu) até a chegada prevista: `marco_progresso + (1 − marco_progresso) × (agora − marco_tempo) ÷ (chegada − marco_tempo)`, 4 casas. Nunca diminui. |
 | Limite do prazo | 00:00 (Brasília) do dia seguinte à data prometida. Entregue até o limite, inclusive: no prazo. Depois: `atrasoHoras` = `arredondar((entregue − limite) em horas; 1)`. |
 | Local | Cidade mais próxima da tabela (ESP-LOG-001, Apêndice A) a até 150 km: `"<Cidade> - <UF>"`; mais longe: `"na rodovia"`. |
 | CNH mascarada | `"*"` repetido (dígitos − 4) vezes + os 4 últimos dígitos: `"06678901243"` → `"*******1243"`. |
-| Passo da viagem | Avanço de uma viagem, feito pela rotina de viagens quando a hora **real** alcança o `proximo_passo_em` dela; o próximo passo é marcado para `RASTREIO_INTERVALO_SEGUNDOS` (30 s) reais depois. |
+| Passo da viagem | Avanço de uma viagem, feito pela rotina de viagens quando a hora **real** alcança o `proximo_passo_em` dela; o próximo passo é marcado para o intervalo da RN-26 (30 min da hora do módulo, entre 2 s e `RASTREIO_INTERVALO_SEGUNDOS` reais). |
+| Rota pelas estradas | Caminho mais curto, em km de estrada, pelos trechos de `comum/comum/dados/estradas.json` (RN-25). |
 | Dono da frota | Usuário com perfil `transportadora` cuja empresa é o `empresa_id` da transportadora, ou um `admin`. |
 
 ## 5. Restrições técnicas
@@ -106,8 +107,8 @@ Telas ─► gateway ─REST /api/v1/transportadoras►│ transportadoras-servi
 | Instâncias | Duas cópias iguais (`transportadoras-1` na porta 8109 e `transportadoras-2` na 8119), com o mesmo banco. |
 | Estrutura de arquivos | `services/transportadoras-service/transportadoras/`: `__init__.py` (`SERVICO`, `SCHEMA`, `TOPICO_DLT`), `main.py`, `api.py`, `servico.py`, `cotacao.py` (motor de cotação, puro), `simulacao.py` (plano e passo da viagem, puros). DDL e seeds em `services/transportadoras-service/migracoes/NNN_*.sql`. |
 | Ponto de entrada | `uvicorn transportadoras.main:app --host 0.0.0.0 --port 8109`. O `lifespan` abre o pool e inicia três rotinas: consumidor, publicador da outbox e viagens (a cada 1 s). |
-| Configuração | As da ESP-LOG-001 (`DB_*`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_ALGORITHM`, `AUTH_JWKS_URL`, `JWT_SECRET_KEY`, `LOG_LEVEL`) e `RASTREIO_INTERVALO_SEGUNDOS` (30). |
-| Formato de data/hora | Instante e Data. Na cotação digitada, `validaAte` sem fuso é lido no horário de Brasília. |
+| Configuração | As da ESP-LOG-001 (`DB_*`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_ALGORITHM`, `AUTH_JWKS_URL`, `JWT_SECRET_KEY`, `LOG_LEVEL`) e `RASTREIO_INTERVALO_SEGUNDOS` (30: o maior intervalo real entre dois passos da viagem, RN-26). |
+| Formato de data/hora | Instante e Data. Na cotação digitada, `validaAte` sem fuso é lido no horário de Brasília, e só com a data (`AAAA-MM-DD`) vale até 23:59:59 desse dia em Brasília. |
 | Formato monetário | Valor monetário. |
 | Logs | JSON no stdout, como na ESP-LOG-001. Proibido `print()`. |
 
@@ -173,7 +174,7 @@ Internos (não aparecem na API): `empresa_id`, `prob_atraso` (0 a 1), `fator_tip
 
 #### SolicitacaoRecebida
 
-Cópia de `solicitacao_frete_criada`: `id` (= `solicitacaoFreteId`), `pedido_id`, `produto_nome`, `tipo_carga`, `peso_kg`, `origem_cidade`, `origem_uf`, `origem_lat`, `origem_lon`, `destino_*`, `distancia_km`, `data_coleta_prevista`, `prazo_decisao_em`. Mais: `status` (`"ABERTA"` ou `"ENCERRADA"`), `cancelada` (booleano), `transportadora_vencedora_id` (string ou `null`).
+Cópia de `solicitacao_frete_criada`: `id` (= `solicitacaoFreteId`), `pedido_id`, `produto_nome`, `tipo_carga`, `peso_kg`, `origem_cidade`, `origem_uf`, `origem_lat`, `origem_lon`, `destino_*`, `distancia_km`, `data_coleta_prevista`, `prazo_decisao_em`, `data_entrega_desejada` (data ou `null`; `dataEntregaDesejada` do evento). Mais: `status` (`"ABERTA"` ou `"ENCERRADA"`), `cancelada` (booleano), `transportadora_vencedora_id` (string ou `null`).
 
 #### CotacaoEmitida
 
@@ -181,7 +182,7 @@ Cópia de `solicitacao_frete_criada`: `id` (= `solicitacaoFreteId`), `pedido_id`
 
 #### Viagem
 
-`id` (UUID4), `entrega_id` (único), `pedido_id`, `solicitacao_id`, `transportadora_id`, `motorista_id`, `veiculo_id`, `rota` (60 pontos), `data_prometida`, `coleta_em`, `chegada_prevista`, `atraso_horas` (sorteado), `atraso_revelado`, `parada_publicada`, `marco_tempo`, `marco_progresso`, `progresso`, `sequencia` (último rastreio publicado), `status`, `proximo_passo_em` (hora real), `entregue_em`, `no_prazo`, `atraso_real_horas`. Não aparece na API; é observada pelos rastreios.
+`id` (UUID4), `entrega_id` (único), `pedido_id`, `solicitacao_id`, `transportadora_id`, `motorista_id`, `veiculo_id`, `rota` (pontos `[lat, lon]` pelas estradas, RN-25), `data_prometida`, `coleta_em`, `chegada_prevista`, `atraso_horas` (sorteado), `atraso_revelado`, `parada_publicada`, `marco_tempo`, `marco_progresso`, `progresso`, `sequencia` (último rastreio publicado), `status`, `proximo_passo_em` (hora real), `entregue_em`, `no_prazo`, `atraso_real_horas`. Não aparece na API; é observada pelos rastreios.
 
 ### 6.2 Estados e transições
 
@@ -321,6 +322,7 @@ Parâmetros: `todas` (booleano, padrão `false`), `page`, `size`. Resposta: a pa
       "distancia_km": 1163.0,
       "data_coleta_prevista": "2026-11-11",
       "prazo_decisao_em": "2026-11-11T00:00:00.000Z",
+      "data_entrega_desejada": "2026-11-20",
       "status": "ABERTA",
       "cancelada": false,
       "transportadora_vencedora_id": null,
@@ -346,7 +348,8 @@ Requisição:
 ```json
 {"valor": 5800.00, "dataEntregaPrevista": "2026-11-17", "validaAte": "2026-11-10T18:00:00Z", "observacoes": "Coleta pela manhã"}
 ```
-- `valor`: número de 0.01 a 10000000 (R$), com no máximo 2 casas decimais; fora disso → 422 `DADOS_INVALIDOS`. `dataEntregaPrevista`: data. `validaAte`: instante (sem fuso = Brasília). `observacoes`: opcional, até 500 caracteres; vazio vira `null`.
+- `valor`: número de 0.01 a 10000000 (R$), com no máximo 2 casas decimais; fora disso → 422 `DADOS_INVALIDOS`. `dataEntregaPrevista`: data. `validaAte`: instante (sem fuso = Brasília) ou só a data (`"2026-11-10"` = 23:59:59 desse dia em Brasília, `"2026-11-11T02:59:59.000Z"`), que é o que a tela envia ("último dia" da proposta). `observacoes`: opcional, até 500 caracteres; vazio vira `null`.
+- `dataEntregaPrevista` depois da `data_entrega_desejada` da carga é aceita: a data é um desejo do comprador, que decide na comparação. A tela pede confirmação antes de enviar.
 
 Resposta 201:
 ```json
@@ -454,7 +457,7 @@ Envelope comum como na ESP-LOG-001 (§7.4), com `"source": "transportadoras-serv
 
 | `tipo` | Campos além dos comuns | `ocorridoEm` | `descricao` |
 |---|---|---|---|
-| `VIAGEM_ALOCADA` | `motorista` (`nome`, `telefone`, `cnhMascarada`), `veiculo` (`placa`, `tipo`), `transportadora` (`nome`, `telefone`), `coletaPrevista`, `previsaoChegada`, `rota` (60 pontos `[lat, lon]`), `posicao` (origem), `progresso` 0.0 | Hora do módulo da escala | `"Motorista <nome> e veículo <placa> escalados."` |
+| `VIAGEM_ALOCADA` | `motorista` (`nome`, `telefone`, `cnhMascarada`), `veiculo` (`placa`, `tipo`), `transportadora` (`nome`, `telefone`), `coletaPrevista`, `previsaoChegada`, `rota` (pontos `[lat, lon]` pelas estradas, RN-25), `posicao` (origem), `progresso` 0.0 | Hora do módulo da escala | `"Motorista <nome> e veículo <placa> escalados."` |
 | `VIAGEM_RECUSADA` | `motivo`: `"SEM_VEICULO"` (nenhum veículo livre compatível) ou `"SEM_MOTORISTA"` (há veículo, mas nenhum motorista livre que possa dirigi-lo) | Hora do módulo da escala | `"A transportadora não tem motorista e veículo livres para esta carga."` |
 | `COLETA_REALIZADA` | `posicao` (origem), `progresso` 0.0, `previsaoChegada` | `coleta_em` do plano | `"Carga coletada em <local da origem>."` |
 | `POSICAO` | `posicao`, `progresso`, `previsaoChegada` | Hora do módulo do passo | `"Veículo em deslocamento conforme rota planejada."` |
@@ -487,7 +490,7 @@ Exemplo `cotacao_recebida` (C-ECO de SF-1):
 }
 ```
 
-Exemplo `rastreio_atualizado` `VIAGEM_ALOCADA` (FS-1; rota com 3 dos 60 pontos):
+Exemplo `rastreio_atualizado` `VIAGEM_ALOCADA` (FS-1; rota com 3 dos 216 pontos):
 ```json
 {
   "pedidoId": "PED-1001",
@@ -501,7 +504,7 @@ Exemplo `rastreio_atualizado` `VIAGEM_ALOCADA` (FS-1; rota com 3 dos 60 pontos):
   "transportadora": {"nome": "Econômica Transportes", "telefone": "(11) 4000-1002"},
   "coletaPrevista": "2026-11-10T14:05:00.300Z",
   "previsaoChegada": "2026-11-23T17:00:00.000Z",
-  "rota": [[-12.5453, -55.7114], [-12.738783, -55.552454], [-23.9608, -46.3336]],
+  "rota": [[-12.5453, -55.7114], [-12.7243, -55.8287], [-23.9608, -46.3336]],
   "posicao": {"lat": -12.5453, "lon": -55.7114},
   "progresso": 0.0,
   "ocorridoEm": "2026-11-10T12:05:00.300Z"
@@ -772,6 +775,16 @@ Cenário: Precedência e atomicidade
   Quando U-ROD envia corpo com valor 0 para "nao-existe"
   Então a resposta é 422 "DADOS_INVALIDOS" (corpo antes da solicitação)
   E nenhuma resposta de erro publica cotacao_recebida nem grava cotação
+
+# CA-45
+Cenário: Validade só com a data e entrega desejada
+  Dado SF-2 recebida com dataEntregaDesejada "2026-11-20"
+  Quando U-ROD consulta a API-07
+  Então o item de SF-2 tem data_entrega_desejada "2026-11-20"
+  Quando U-ROD envia {"valor": 5800.00, "dataEntregaPrevista": "2026-11-23", "validaAte": "2026-11-10"} para SF-2
+  Então a resposta é 201 com validaAte "2026-11-11T02:59:59.000Z" (23:59:59 do dia 10 em Brasília) e dataEntregaPrevista "2026-11-23", depois da data desejada
+  Dado uma solicitação recebida sem dataEntregaDesejada
+  Então o item dela na API-07 tem data_entrega_desejada null
 ```
 
 ### RF-06 — Motoristas
@@ -874,7 +887,7 @@ Cenário: Escala com sorteio reproduzível
   Dado SF-1 recebida e a hora do módulo "2026-11-10T12:05:00.300Z"
   Quando FS-1 é publicado
   Então há exatamente uma mensagem em "rastreio_atualizado" com chave "PED-1001", sequencia 1, tipo "VIAGEM_ALOCADA" e o payload igual ao exemplo do §7.4: veículo vei-eco-1 (QWE3F45), o único livre compatível, e motorista mot-eco-2 (Marcos Vieira), sorteado com a semente "e7a41c22-6b0d-4f3e-8a5c-1d9b2e7f4a63"
-  E coletaPrevista é a hora da escala + 2 h, previsaoChegada é "2026-11-23T17:00:00.000Z" (14:00 em Brasília da data prometida) e a rota tem 60 pontos, de Sorriso a Santos
+  E coletaPrevista é a hora da escala + 2 h, previsaoChegada é "2026-11-23T17:00:00.000Z" (14:00 em Brasília da data prometida) e a rota tem 216 pontos pelas estradas (RN-25), de [-12.5453, -55.7114] (Sorriso) a [-23.9608, -46.3336] (Santos)
   E a API-10 e a API-14 de "transp-economica" (por U-ADM) mostram mot-eco-2 e vei-eco-1 com em_viagem true
 
 # CA-29
@@ -918,12 +931,12 @@ Cenário: Cancelamento que chega antes da escolha
 # CA-28
 Cenário: Viagem completa de FS-1
   Dado FS-1 escalada (CA-27)
-  Quando U-ADM ajusta o relógio da logística para {"fator": 20000} (cada passo de 30 s reais ≈ 167 h do módulo; a viagem planejada tem cerca de 343 h)
+  Quando U-ADM ajusta o relógio da logística para {"fator": 20000} (a viagem dá o próximo passo na hora, e depois um a cada 2 s reais ≈ 11 h do módulo, RN-26; a viagem planejada tem cerca de 343 h)
   Então em até 180 s os rastreios de FS-1 têm sequências consecutivas 1, 2, ..., N e:
     | sequencia | tipo                | conteúdo                                                                                         |
     | 1         | VIAGEM_ALOCADA      | CA-27                                                                                             |
     | 2         | COLETA_REALIZADA    | ocorridoEm = coletaPrevista, posicao de Sorriso, progresso 0.0, descricao "Carga coletada em Sorriso - MT." |
-    | entre 3 e N−1 | PARADA (uma vez) | progresso 0.45, posicao {"lat": -17.647621, "lon": -51.519858}, local "Jataí - GO", duracaoPrevistaMin 480, descricao "Parada para descanso do motorista em Jataí - GO." |
+    | entre 3 e N−1 | PARADA (uma vez) | progresso 0.45, posicao {"lat": -17.807058, "lon": -52.044738}, local "Jataí - GO", duracaoPrevistaMin 480, descricao "Parada para descanso do motorista em Jataí - GO." |
     | entre 3 e N−1 | PREVISAO_ATUALIZADA (uma vez, depois da PARADA) | previsaoAnterior "2026-11-23T17:00:00.000Z", previsaoChegada "2026-11-24T19:36:00.000Z" (atraso sorteado de 26.6 h), progresso ≥ 0.6 |
     | N         | ENTREGA_REALIZADA   | o exemplo do §7.4: noPrazo false, atrasoHoras 16.6 (19:36 UTC − 03:00 UTC do dia 24)               |
   E os demais rastreios entre 3 e N−1 são do tipo "POSICAO", com progresso entre 0 e 1
@@ -935,6 +948,15 @@ Cenário: Antes da hora da coleta, nada é publicado
   Dado FS-1 escalada e o relógio com fator 1
   Quando passam 90 s reais (3 passos)
   Então FS-1 continua só com o rastreio de sequencia 1
+
+# CA-46
+Cenário: Passo da viagem conforme a velocidade do relógio
+  Dado FS-1 escalada, o relógio com fator 1 e o próximo passo marcado para 30 s reais depois
+  Quando U-ADM ajusta o relógio da logística para {"fator": 3600}
+  Então em até 3 s reais depois do relogio_ajustado a viagem dá um passo
+  E os passos seguintes acontecem a cada 2 s reais (2 h do módulo)
+  Quando U-ADM volta o relógio para {"fator": 360}
+  Então os passos passam a ser a cada 5 s reais (30 min do módulo)
 ```
 
 ### RF-10 — Cancelar a viagem
@@ -1041,10 +1063,10 @@ Cenário: Empresa que não transporta, suspensa ou incompleta
 | RN-05 | `dataEntregaPrevista` = `dataColetaPrevista` + prazo em dias úteis. `validaAte` da cotação automática = `prazoDecisaoEm` da solicitação, como recebido. `cotacaoId` = UUID5 (glossário). | Coleta quarta 2026-11-11 + 8 dias úteis = segunda 2026-11-23. |
 | RN-06 | `transportadoraNome` vai no evento; `observacoes` é `null` na cotação automática. | CA-01. |
 | RN-07 | Cotação digitada: a transportadora é a da empresa do usuário, ativa (simulada ou não); sem ela → 403 `SEM_TRANSPORTADORA`. Solicitação inexistente → 404. Carga não atendida → 403 `CARGA_INCOMPATIVEL`. Solicitação `ENCERRADA`, ou `agora > prazo_decisao_em` → 409 `SOLICITACAO_ENCERRADA`. Já cotada pela transportadora (automática ou digitada) → 409 `COTACAO_JA_ENVIADA`. | CA-18, CA-19. |
-| RN-08 | Cotação digitada: `prazoDias` = dias úteis entre `data_coleta_prevista` e `dataEntregaPrevista`; < 1 → 422 `PRAZO_INVALIDO`. A data de entrega pode cair num fim de semana. `validaAte` ≤ hora do módulo → 422 `VALIDADE_INVALIDA`. Sem frota livre compatível → 422 `SEM_FROTA_LIVRE`. `validaAte` sem fuso = Brasília. | Coleta 2026-11-11, entrega 2026-11-17 → 4 dias. |
+| RN-08 | Cotação digitada: `prazoDias` = dias úteis entre `data_coleta_prevista` e `dataEntregaPrevista`; < 1 → 422 `PRAZO_INVALIDO`. A data de entrega pode cair num fim de semana e pode passar da `data_entrega_desejada`. `validaAte` só com a data = 23:59:59 desse dia em Brasília. `validaAte` ≤ hora do módulo → 422 `VALIDADE_INVALIDA`. Sem frota livre compatível → 422 `SEM_FROTA_LIVRE`. `validaAte` sem fuso = Brasília. | Coleta 2026-11-11, entrega 2026-11-17 → 4 dias. |
 | RN-09 | A cotação digitada tem `origemCotacao` `"DIGITADA"`, guarda `usuario_id` (`sub`) e publica `cotacao_recebida` como a automática. | CA-14. |
 | RN-10 | Escala: se a transportadora do `frete_selecionado` não está neste serviço → ignorado (sem viagem, sem rastreio, sem DLT). Se já existe viagem para o `entregaId` → ignorado. Se a solicitação não existe → DLT `"Solicitação desconhecida: <id>"`. Se o pedido foi cancelado → sem viagem. Em todos os casos, a solicitação recebida (se existir) fica `ENCERRADA` com `transportadora_vencedora_id`. | CA-30, CA-31. |
-| RN-11 | Sorteio e reserva: os veículos livres compatíveis, em ordem de `id`, são embaralhados com a semente; para cada veículo, os motoristas livres que podem dirigi-lo, em ordem de `id`, são embaralhados com a semente; vale o primeiro par que se consegue reservar. Sem par: `VIAGEM_RECUSADA` com `motivo` `"SEM_VEICULO"` se não havia veículo livre compatível, senão `"SEM_MOTORISTA"`. A viagem é agendada com `sequencia` 1 e o primeiro passo 30 s reais depois. | CA-27, CA-29. |
+| RN-11 | Sorteio e reserva: os veículos livres compatíveis, em ordem de `id`, são embaralhados com a semente; para cada veículo, os motoristas livres que podem dirigi-lo, em ordem de `id`, são embaralhados com a semente; vale o primeiro par que se consegue reservar. Sem par: `VIAGEM_RECUSADA` com `motivo` `"SEM_VEICULO"` se não havia veículo livre compatível, senão `"SEM_MOTORISTA"`. A viagem é agendada com `sequencia` 1, com a rota da RN-25 e o primeiro passo depois do intervalo da RN-26. | CA-27, CA-29. |
 | RN-12 | Passo: em `AGENDADA`, só publica `COLETA_REALIZADA` (com `ocorridoEm` = coleta) quando `agora ≥ coleta_em`. Em `EM_TRANSITO`, calcula o progresso e publica, nesta ordem: `PARADA` ao passar de 0,45 (uma vez, com o instante em que teria acontecido); `PREVISAO_ATUALIZADA` ao passar de 0,60 se o atraso sorteado for > 0 (uma vez; nova previsão = anterior + atraso; o marco passa a ser o progresso atual, no máximo 0,95); e então `ENTREGA_REALIZADA` se o progresso chegou a 1, ou `POSICAO`. Cada rastreio soma 1 à `sequencia`. Com o relógio muito acelerado, um passo pode publicar vários rastreios. | CA-28. |
 | RN-13 | Entrega: `ocorridoEm` = chegada prevista; `noPrazo` e `atrasoHoras` pelo limite do prazo (glossário); a viagem vai a `ENTREGUE` e o motorista e o veículo são liberados na mesma transação. | FS-1: chegada 24/11 19:36 UTC, limite 24/11 03:00 UTC → 16.6 h. |
 | RN-14 | A API-04 lista todas as transportadoras por `nome`; a API-05 devolve a da empresa do usuário (sem ela → 404 `SEM_TRANSPORTADORA`). | CA-07, CA-08. |
@@ -1054,10 +1076,12 @@ Cenário: Empresa que não transporta, suspensa ou incompleta
 | RN-18 | Frota: só o dono da frota (glossário) usa as API-10 a API-17. Transportadora inexistente → 404 `TRANSPORTADORA_NAO_ENCONTRADA`; de outra empresa → 403 `OUTRA_TRANSPORTADORA`. CNH única por transportadora e placa única no serviço, contando os desativados, no cadastro e na alteração (a do próprio item não conta) → 409. | CA-22, CA-25. |
 | RN-19 | Desativar exige que o item não esteja em viagem (409 `MOTORISTA_EM_VIAGEM` / `VEICULO_EM_VIAGEM`); a desativação é definitiva e repeti-la responde 200. Alterar um item em viagem é permitido e não afeta a viagem em andamento. | CA-21, CA-26. |
 | RN-20 | Cancelamento: só age com `novoStatus` (ou `status`) `CANCELADO`, sem diferenciar maiúsculas. As solicitações recebidas do pedido ficam `ENCERRADA` e `cancelada`; as viagens `AGENDADA` ou `EM_TRANSITO` ficam `CANCELADA`, com a frota liberada. Nenhum rastreio é publicado. | CA-33. |
-| RN-21 | Relógio: grava o estado de `relogio_ajustado` só se a `versao` for maior que a gravada; mensagem repetida ou atrasada não muda nada. | CA-34. |
+| RN-21 | Relógio: grava o estado de `relogio_ajustado` só se a `versao` for maior que a gravada; mensagem repetida ou atrasada não muda nada. Quando grava, as viagens `AGENDADA` e `EM_TRANSITO` com o próximo passo no futuro passam a dar o próximo passo na hora, já na velocidade nova (RN-26). | CA-34, CA-46. |
 | RN-22 | Consumo: idempotente por `eventId`, com retentativas e DLT como na RN-30 da ESP-LOG-001, no tópico `transportadoras.dlt`. | CA-36. |
 | RN-23 | Requisição com erro (qualquer 4xx) não altera estado, não grava cotação nem evento. | CA-20. |
 | RN-24 | `empresa_cadastrada` (D28): empresa com `CARRIER` em `scopes` e `status` `ACTIVE` (ausente vale `ACTIVE`) vira transportadora com `id` = `empresa_id` = `tenantId` (ou `tenant_id`, até 64 caracteres), `nome` = `legalName` (ou `legal_name`) sem espaços nas pontas e até 200 caracteres, `simulada` false (cota digitando, RF-05), `tipos_carga` com os 4 tipos (o evento não informa quais cargas ela leva; só cota o que a frota comporta), `ufs_atendidas` nulo, `prob_atraso` 0.100 e regra de cotação padrão (`preco_minimo` 1000.00, `tarifa_km` 3.20, `tarifa_ton` 40.00, `km_por_dia` 600, `prazo_base_dias` 1; só o `km_por_dia` é usado, na viagem). Evento da mesma empresa com outro `eventId`: só atualiza o nome. Sem `CARRIER` ou com outro `status`: ignorado. Sem `scopes` (lista), sem `tenantId` ou sem `legalName`: DLT direto. Motoristas e veículos são cadastrados pela própria transportadora (RF-06, RF-07). | AgroLog (`CARRIER`) → transportadora real. CA-43, CA-44. |
+| RN-25 | Rota (D9): o caminho mais curto, em km de estrada, pelos trechos de `comum/comum/dados/estradas.json` (traçado do OSRM sobre o OpenStreetMap entre cada cidade do Apêndice A da ESP-LOG-001 e as 5 vizinhas mais próximas, gerado uma vez pela ferramenta `gerar_estradas`). Começa no ponto da origem e termina no do destino da tabela. Sem caminho, ou com caminho mais longo que 2 vezes a `distancia_km` (travessia de balsa), a rota é a linha reta de 60 pontos. Preço e prazo continuam pela `distancia_km` (RN-02). | Sorriso a Santos: 216 pontos, ~2.115 km. Belém a Macapá: linha reta. CA-27, CA-46. |
+| RN-26 | Intervalo do passo da viagem (D10): `max(2, min(RASTREIO_INTERVALO_SEGUNDOS, 1800 ÷ fator))` segundos reais, ou seja, 30 min da hora do módulo, com no mínimo 2 s e no máximo 30 s reais. | Fator 1 → 30 s; 360 → 5 s; 3600 → 2 s. CA-28, CA-46. |
 
 ## 10. Catálogo de erros
 
@@ -1154,13 +1178,13 @@ Cenário: CNH nos eventos
 | RF-02 | RN-14 | API-04, API-05, API-09 | CA-07, CA-08 |
 | RF-03 | RN-17 | API-06 | CA-09, CA-10 |
 | RF-04 | RN-15, RN-16 | API-07 | CA-11 a CA-13 |
-| RF-05 | RN-02, RN-05, RN-07 a RN-09, RN-23 | API-08, `cotacao_recebida` | CA-14 a CA-20 |
+| RF-05 | RN-02, RN-05, RN-07 a RN-09, RN-23 | API-08, `cotacao_recebida`, API-07 | CA-14 a CA-20, CA-45 |
 | RF-06 | RN-18, RN-19 | API-10 a API-13 | CA-21 a CA-23 |
 | RF-07 | RN-18, RN-19 | API-14 a API-17 | CA-24 a CA-26 |
-| RF-08 | RN-10, RN-11 | `frete_selecionado`, `rastreio_atualizado` | CA-27, CA-29 a CA-31 |
-| RF-09 | RN-12, RN-13 | Rotina de viagens, `rastreio_atualizado` | CA-28, CA-32. Sem CA de erro: a rotina não recebe entrada; o cancelamento está no RF-10 |
+| RF-08 | RN-10, RN-11, RN-25 | `frete_selecionado`, `rastreio_atualizado` | CA-27, CA-29 a CA-31 |
+| RF-09 | RN-12, RN-13, RN-26 | Rotina de viagens, `rastreio_atualizado` | CA-28, CA-32, CA-46. Sem CA de erro: a rotina não recebe entrada; o cancelamento está no RF-10 |
 | RF-10 | RN-20 | `pedido_atualizado` | CA-31, CA-33 |
-| RF-11 | RN-21 | `relogio_ajustado`, API-07 | CA-34 |
+| RF-11 | RN-21, RN-26 | `relogio_ajustado`, API-07 | CA-34, CA-46 |
 | RF-12 | — | API-01 a API-03 | CA-35. Sem CA de erro: rotas públicas sem entrada |
 | RF-13 | RN-22 | Todos os tópicos consumidos, `transportadoras.dlt` | CA-36 (e CA-06, CA-30, CA-34) |
 | RF-14 | RN-22, RN-24 | `empresa_cadastrada`, API-05 | CA-43, CA-44 |
@@ -1176,7 +1200,7 @@ O CA-28 vem depois do CA-27 no RF-09 porque depende da escala. Os atributos inte
 | Q-02 | Decisão (D18) | Relógio só anda para a frente. | Como na ESP-LOG-001 (Q-02). |
 | Q-03 | Decisão (D7) | Transportadoras reais ou simuladas. | Simuladas, com parâmetros fixos nos seeds (Apêndice A), mais a Rodovia Sul, não simulada, para a cotação digitada (D3). |
 | Q-04 | Decisão (D20) | Transportadora sem frota. | Não cota. Se a frota acabar entre a cotação e a escolha, recusa a viagem, e a logística passa para a próxima cotação (ESP-LOG-001, RF-12). |
-| Q-05 | Decisão (D8 a D10) | Posição do caminhão. | Simulada pelo relógio do módulo, em linha reta, com passos de 30 s reais. **Depende do professor (P1).** |
+| Q-05 | Decisão (D8 a D10) | Posição do caminhão. | Simulada pelo relógio do módulo, pelas estradas (RN-25), com um passo a cada 30 min do módulo (RN-26). O professor pediu a rota mais real (23/11/2026). |
 | Q-06 | Decisão (D12) | Tópico `rastreio_atualizado`. | Novo; **depende da Infraestrutura (P3)**. |
 | Q-07 | Decisão | O atraso só aparece a 60% do caminho. | Representa o motorista percebendo o atraso na estrada; antes disso, a previsão é a planejada. |
 | Q-08 | Decisão | `SEM_TRANSPORTADORA` com dois status. | Mantido como implementado (§10). Uma versão futura pode unificar em 403; mudar quebra a tela atual. |
@@ -1221,6 +1245,7 @@ O CA-28 vem depois do CA-27 no RF-09 porque depende da escala. Os atributos inte
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.4 | 2026-11-23 | Grupo 5 | Rota pelas estradas, a pedido do professor (D9; RN-25, CA-27 e CA-28 com os pontos e a parada novos). Passo da viagem medido na hora do módulo (D10; RN-26, CA-46): com 30 s reais fixos, o relógio em 3600× fazia o caminhão saltar 30 h de estrada. Ajuste do relógio adianta o próximo passo (RN-21). Do mockup do grupo de UX: `validaAte` só com a data e `data_entrega_desejada` na API-07 (RN-08, CA-45; migração 005). |
 | 1.3 | 2026-11-23 | Grupo 5 | Correções da caça aos bugs (explicação 13): `valor` da cotação digitada com no máximo 2 casas e no mínimo 0.01 (antes, 0.004 recebia 201 e a cotação morria na DLT da logística); `correlationId` de até 128 caracteres (migração 004); envelope validado como na RN-30 da ESP-LOG-001 1.5. |
 | 1.2 | 2026-11-23 | Grupo 5 | Transportadora real criada a partir do `empresa_cadastrada` da Autenticação (D28; RF-14, RN-24, CA-43, CA-44, Q-13, §7.3). |
 | 1.1 | 2026-11-10 | Grupo 5 | Token conforme o código do Identity-Service, como na ESP-LOG-001 1.1 (§7.1). |
