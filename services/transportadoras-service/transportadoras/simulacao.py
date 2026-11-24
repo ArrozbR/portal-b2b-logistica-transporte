@@ -33,6 +33,18 @@ PROGRESSO_DA_PARADA = 0.45
 PROGRESSO_QUE_REVELA_ATRASO = 0.60
 ATRASO_MINIMO_H, ATRASO_MAXIMO_H = 4.0, 36.0
 
+# De quanto em quanto a viagem dá um passo (e publica a posição). O intervalo é medido na hora
+# do módulo, e não na hora real: com 30 s reais fixos, o relógio em 3600x fazia o caminhão saltar
+# 30 h de estrada de uma vez, e a tela passava 30 s sem posição nova. Os limites reais evitam
+# passos demais com o relógio muito acelerado (mínimo) e passos raros demais em tempo real (máximo).
+PASSO_NO_MODULO_S = 30 * 60
+MENOR_PASSO_REAL_S = 2.0
+
+
+def intervalo_real_do_passo(fator: float, maior_passo_real_s: float) -> float:
+    """Segundos reais até o próximo passo da viagem, para o relógio no `fator` dado."""
+    return max(MENOR_PASSO_REAL_S, min(float(maior_passo_real_s), PASSO_NO_MODULO_S / max(fator, 1e-9)))
+
 
 @dataclass(frozen=True)
 class PlanoViagem:

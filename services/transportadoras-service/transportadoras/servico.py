@@ -22,15 +22,16 @@ from psycopg.types.json import Jsonb
 from comum.db import BancoDeDados, buscar_todos, buscar_um
 from comum.erros import Problema
 from comum.eventos import EventoInvalido, validar_payload
-from comum.geo import Cidade, dias_uteis_entre, interpolar_rota, somar_dias_uteis
+from comum.geo import Cidade, dias_uteis_entre, rota_da_viagem, somar_dias_uteis
 from comum.logs import correlacao
 from comum.outbox import gravar_evento
-from comum.relogio import EstadoRelogio, Relogio, gravar_estado
+from comum.relogio import EstadoRelogio, Relogio, calcular_agora, gravar_estado
 
 from . import SCHEMA, SERVICO
 from .empresas import REGRA_PADRAO, transportadora_da_empresa
 from .cotacao import PerfilTransportadora, RegraCotacao, atende, calcular
-from .simulacao import EstadoViagem, EventoViagem, cnh_permite, embaralhar, mascarar_cnh, passo, planejar
+from .simulacao import (EstadoViagem, EventoViagem, cnh_permite, embaralhar, intervalo_real_do_passo,
+                        mascarar_cnh, passo, planejar)
 
 log = logging.getLogger(__name__)
 
@@ -78,15 +79,16 @@ class Transportadoras:
             INSERT INTO transportadoras.solicitacao_recebida (
                 id, pedido_id, produto_nome, tipo_carga, peso_kg, origem_cidade, origem_uf, origem_lat, origem_lon,
                 destino_cidade, destino_uf, destino_lat, destino_lon, distancia_km, data_coleta_prevista,
-                prazo_decisao_em, correlation_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                prazo_decisao_em, data_entrega_desejada, correlation_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
             RETURNING id
         """, (
             sid, solicitacao["pedidoId"], solicitacao.get("produtoNome"), solicitacao["tipoCarga"],
             solicitacao["pesoKg"], origem["cidade"], origem["uf"], origem["lat"], origem["lon"],
             destino["cidade"], destino["uf"], destino["lat"], destino["lon"], solicitacao["distanciaKm"],
-            solicitacao["dataColetaPrevista"], solicitacao["prazoDecisaoEm"], envelope.get("correlationId"),
+            solicitacao["dataColetaPrevista"], solicitacao["prazoDecisaoEm"], solicitacao.get("dataEntregaDesejada"),
+            envelope.get("correlationId"),
         ))
         if nova is None:
             log.info("Solicitação já recebida antes", extra={"dados": {"solicitacaoFreteId": sid}})
@@ -300,7 +302,7 @@ class Transportadoras:
                         float(solicitacao["origem_lat"]), float(solicitacao["origem_lon"]))
         destino = Cidade(solicitacao["destino_cidade"], solicitacao["destino_uf"],
                          float(solicitacao["destino_lat"]), float(solicitacao["destino_lon"]))
-        rota = interpolar_rota(origem, destino)
+        rota = rota_da_viagem(origem, destino)
 
         await conn.execute("""
             INSERT INTO transportadoras.viagem (
@@ -311,7 +313,8 @@ class Transportadoras:
                     now() + make_interval(secs => %s), %s)
         """, (viagem_id, frete["entregaId"], frete["pedidoId"], solicitacao["id"], transportadora["id"],
               motorista["id"], veiculo["id"], Jsonb(rota), data_prometida, plano.coleta_em,
-              plano.chegada_planejada, plano.atraso_horas, plano.coleta_em, self.intervalo, id_correlacao))
+              plano.chegada_planejada, plano.atraso_horas, plano.coleta_em,
+              await self._intervalo_do_passo(conn), id_correlacao))
 
         await self._publicar(conn, {
             **base, "sequencia": 1, "tipo": "VIAGEM_ALOCADA",
@@ -386,8 +389,14 @@ class Transportadoras:
                 await self._dar_passo(conn, v)
             return True
 
+    async def _intervalo_do_passo(self, conn: AsyncConnection) -> float:
+        estado = await self.relogio.estado(conn)
+        return intervalo_real_do_passo(estado.fator if estado else 1.0, self.intervalo)
+
     async def _dar_passo(self, conn: AsyncConnection, v: dict) -> None:
-        agora = await self.relogio.agora(conn)
+        relogio = await self.relogio.estado(conn)
+        agora = calcular_agora(relogio, datetime.now(timezone.utc))
+        intervalo = intervalo_real_do_passo(relogio.fator if relogio else 1.0, self.intervalo)
         estado = EstadoViagem(
             status=v["status"], rota=[tuple(p) for p in v["rota"]], coleta_em=v["coleta_em"],
             chegada_prevista=v["chegada_prevista"], atraso_horas=float(v["atraso_horas"]),
@@ -415,7 +424,7 @@ class Transportadoras:
                    atraso_real_horas = COALESCE(%s, atraso_real_horas)
              WHERE id = %s
         """, (novo.status, novo.chegada_prevista, novo.atraso_revelado, novo.parada_publicada, novo.marco_tempo,
-              novo.marco_progresso, novo.progresso, sequencia, self.intervalo, entregue, novo.chegada_prevista,
+              novo.marco_progresso, novo.progresso, sequencia, intervalo, entregue, novo.chegada_prevista,
               no_prazo, atraso_real, v["id"]))
         if entregue:
             await self._liberar_frota(conn, v["id"])
@@ -470,6 +479,13 @@ class Transportadoras:
         estado = EstadoRelogio.do_evento(validar_payload("relogio_ajustado", envelope["payload"]))
         gravou = await gravar_estado(conn, SCHEMA, estado)
         self.relogio.invalidar()
+        if gravou:
+            # As viagens dão o próximo passo já na velocidade nova, sem esperar o intervalo antigo
+            # (até 30 s reais, que em 3600x eram 30 h de estrada).
+            await conn.execute("""
+                UPDATE transportadoras.viagem SET proximo_passo_em = now()
+                 WHERE status IN ('AGENDADA', 'EM_TRANSITO') AND proximo_passo_em > now()
+            """)
         log.info("Relógio do módulo sincronizado" if gravou else "Ajuste de relógio antigo ignorado",
                  extra={"dados": {"versao": estado.versao, "fator": estado.fator}})
         return gravou

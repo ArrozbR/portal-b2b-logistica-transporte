@@ -6,10 +6,13 @@ portos, que é o cenário do portal. Cidade fora da lista: o evento vai para a D
 cidade pode ser acrescentada aqui.
 """
 
+import heapq
+import json
 import math
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 
 FATOR_SINUOSIDADE = 1.3  # estrada é ~30% mais longa que a linha reta
 
@@ -214,17 +217,93 @@ Ponto = tuple[float, float]  # (latitude, longitude)
 
 
 def interpolar_rota(origem: Cidade, destino: Cidade, pontos: int = 60) -> list[Ponto]:
-    """Rota simulada: `pontos` pontos em linha reta entre as duas cidades (D9).
-
-    A rota por estrada (OSRM) é um extra para depois; a linha reta é honesta
-    sobre ser uma simulação.
-    """
+    """`pontos` pontos em linha reta entre as duas cidades: a rota quando não há estrada (D9)."""
     passos = max(pontos - 1, 1)
     return [
         (round(origem.lat + (destino.lat - origem.lat) * i / passos, 6),
          round(origem.lon + (destino.lon - origem.lon) * i / passos, 6))
         for i in range(passos + 1)
     ]
+
+
+# ---------------------------------------------------------------------------- rota por estrada
+# O traçado das estradas entre cidades vizinhas está em dados/estradas.json, gerado uma vez
+# pela ferramenta gerar_estradas (OSRM sobre o OpenStreetMap). A rota de uma viagem é o
+# caminho mais curto, em km de estrada, por esses trechos (Dijkstra). Sem o arquivo, ou sem
+# caminho entre as cidades, a rota volta a ser a linha reta.
+ARQUIVO_ESTRADAS = Path(__file__).resolve().parent / "dados" / "estradas.json"
+_grafo_estradas: dict[str, list[tuple[str, float, list[Ponto]]]] | None = None
+
+
+def _chave(cidade: Cidade) -> str:
+    return f"{cidade.nome}/{cidade.uf}"
+
+
+def _grafo() -> dict[str, list[tuple[str, float, list[Ponto]]]]:
+    global _grafo_estradas
+    if _grafo_estradas is None:
+        grafo: dict[str, list[tuple[str, float, list[Ponto]]]] = {}
+        if ARQUIVO_ESTRADAS.exists():
+            for t in json.loads(ARQUIVO_ESTRADAS.read_text(encoding="utf-8"))["trechos"]:
+                pontos = [(lat, lon) for lat, lon in t["pontos"]]
+                grafo.setdefault(t["a"], []).append((t["b"], t["km"], pontos))
+                grafo.setdefault(t["b"], []).append((t["a"], t["km"], pontos[::-1]))
+        _grafo_estradas = grafo
+    return _grafo_estradas
+
+
+def rota_por_estrada(origem: Cidade, destino: Cidade) -> list[Ponto] | None:
+    """Traçado pelas estradas de `origem` a `destino`, ou None se não houver caminho."""
+    grafo = _grafo()
+    # Pelo nome canônico da tabela: o evento pode trazer "sorriso" ou "SORRISO".
+    origem = buscar_cidade(origem.nome, origem.uf) or origem
+    destino = buscar_cidade(destino.nome, destino.uf) or destino
+    inicio, fim = _chave(origem), _chave(destino)
+    if inicio == fim or inicio not in grafo or fim not in grafo:
+        return None
+    distancia = {inicio: 0.0}
+    anterior: dict[str, tuple[str, list[Ponto]]] = {}
+    fila = [(0.0, inicio)]
+    while fila:
+        km, atual = heapq.heappop(fila)
+        if atual == fim:
+            break
+        if km > distancia.get(atual, math.inf):
+            continue
+        for vizinho, trecho_km, pontos in grafo[atual]:
+            novo_km = km + trecho_km
+            if novo_km < distancia.get(vizinho, math.inf):
+                distancia[vizinho] = novo_km
+                anterior[vizinho] = (atual, pontos)
+                heapq.heappush(fila, (novo_km, vizinho))
+    if fim not in anterior:
+        return None
+    trechos = []
+    atual = fim
+    while atual != inicio:
+        atual, pontos = anterior[atual][0], anterior[atual][1]
+        trechos.append(pontos)
+    rota: list[Ponto] = []
+    for pontos in reversed(trechos):
+        rota.extend(pontos if not rota else pontos[1:])  # o fim de um trecho é o começo do próximo
+    return rota
+
+
+# Estrada mais longa que isto (em relação à distância estimada) é uma volta que nenhum
+# caminhão faria: atravessar de balsa (Belém-Macapá, por exemplo). Nesse caso, a linha reta.
+MAIOR_VOLTA = 2.0
+
+
+def comprimento_km(rota: list[Ponto]) -> float:
+    return sum(distancia_linha_reta_km(*rota[i], *rota[i + 1]) for i in range(len(rota) - 1))
+
+
+def rota_da_viagem(origem: Cidade, destino: Cidade) -> list[Ponto]:
+    """Rota da viagem simulada: pelas estradas quando possível; senão, linha reta (D9)."""
+    rota = rota_por_estrada(origem, destino)
+    if rota is None or comprimento_km(rota) > distancia_estrada_km(origem, destino) * MAIOR_VOLTA:
+        return interpolar_rota(origem, destino)
+    return rota
 
 
 def posicao_na_rota(rota: list[Ponto], progresso: float) -> Ponto:

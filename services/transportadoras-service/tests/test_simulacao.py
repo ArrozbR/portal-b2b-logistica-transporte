@@ -4,8 +4,8 @@ import pytest
 
 from comum.formatos import BRASILIA
 from comum.geo import buscar_cidade, interpolar_rota
-from transportadoras.simulacao import (EstadoViagem, cnh_permite, embaralhar, mascarar_cnh, passo, planejar,
-                                       progresso, resultado_no_prazo)
+from transportadoras.simulacao import (EstadoViagem, cnh_permite, embaralhar, intervalo_real_do_passo, mascarar_cnh,
+                                       passo, planejar, progresso, resultado_no_prazo)
 
 AGORA = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)  # terça, 09:00 em Brasília
 ROTA = interpolar_rota(buscar_cidade("Sorriso", "MT"), buscar_cidade("Santos", "SP"))
@@ -134,3 +134,16 @@ def test_sorteio_reproduzivel():
     itens = ["a", "b", "c", "d", "e"]
     assert embaralhar("ent-1", itens) == embaralhar("ent-1", itens)
     assert sorted(embaralhar("ent-1", itens)) == itens
+
+
+@pytest.mark.parametrize("fator, segundos", [
+    (1, 30),        # tempo real: 30 s (o máximo configurado)
+    (60, 30),       # 30 min do módulo = 30 s reais
+    (360, 5),       # 30 min do módulo = 5 s reais
+    (3600, 2),      # seriam 0,5 s; o mínimo é 2 s (2 h do módulo por passo)
+    (100000, 2),
+])
+def test_passo_da_viagem_segue_a_hora_do_modulo(fator, segundos):
+    # Com 30 s reais fixos, o relógio em 3600x fazia o caminhão saltar 30 h de estrada por passo.
+    assert intervalo_real_do_passo(fator, 30) == pytest.approx(segundos)
+

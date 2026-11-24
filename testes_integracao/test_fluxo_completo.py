@@ -51,7 +51,8 @@ def test_do_pedido_a_entrega(api, entrar, relogio):
 
     # 4. Efeitos: rastreio completo, notificações, pontualidade e documentos
     rastreio = api.get(f"/api/v1/logistica/entregas/{entrega_id}/rastreio", headers=comprador).json()
-    assert rastreio["status"] == "ENTREGUE" and rastreio["progresso"] == 1.0 and len(rastreio["rota"]) == 60
+    assert rastreio["status"] == "ENTREGUE" and rastreio["progresso"] == 1.0
+    assert len(rastreio["rota"]) == 216  # Sorriso a Santos pelas estradas (D9)
     tipos = {n["tipo"] for n in api.get("/api/v1/logistica/notificacoes", headers=fornecedor,
                                         params={"size": 100}).json()["items"] if n["pedido_id"] == pedido_id}
     assert {"FRETE_ESCOLHIDO", "MOTORISTA_ESCALADO", "COLETA_REALIZADA", "ENTREGA_REALIZADA"} <= tipos

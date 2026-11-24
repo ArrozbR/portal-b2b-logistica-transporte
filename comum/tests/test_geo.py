@@ -43,3 +43,20 @@ def test_dias_uteis_pulam_fim_de_semana():
     assert somar_dias_uteis(sexta, 1) == date(2026, 11, 16)  # segunda
     assert somar_dias_uteis(sexta, 5) == date(2026, 11, 20)
     assert proximo_dia_util(date(2026, 11, 14)) == date(2026, 11, 16)  # sábado → segunda
+
+
+def test_rota_da_viagem_segue_as_estradas():
+    from comum.geo import Cidade, comprimento_km, rota_da_viagem
+    sorriso, santos = buscar_cidade("Sorriso", "MT"), buscar_cidade("Santos", "SP")
+    rota = rota_da_viagem(sorriso, santos)
+    assert rota[0] == (sorriso.lat, sorriso.lon) and rota[-1] == (santos.lat, santos.lon)
+    assert len(rota) > 60  # mais pontos que a linha reta: segue as curvas da estrada
+    assert comprimento_km(rota) == pytest.approx(distancia_estrada_km(sorriso, santos), rel=0.1)
+    # O nome do evento pode vir em outra grafia; a rota é a mesma.
+    assert rota_da_viagem(Cidade("SORRISO", "MT", sorriso.lat, sorriso.lon), santos) == rota
+
+
+def test_travessia_de_balsa_vira_linha_reta():
+    from comum.geo import interpolar_rota, rota_da_viagem
+    macapa, belem = buscar_cidade("Macapá", "AP"), buscar_cidade("Belém", "PA")
+    assert rota_da_viagem(macapa, belem) == interpolar_rota(macapa, belem)
