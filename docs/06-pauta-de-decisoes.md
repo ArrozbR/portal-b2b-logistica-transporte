@@ -128,6 +128,8 @@ Implementado na etapa 4: tela de comparação (cartões, selos, pontualidade, gr
 
 **Por que mudou:** antes, o passo era de 30 s reais fixos. Com o relógio em 3600×, cada passo equivalia a 30 h de estrada: o caminhão saltava pelo mapa e, por até 30 s, nem o botão "Atualizar localização" tinha posição nova para mostrar.
 
+**Entre um passo e outro (24/11/2026):** a tela do rastreio move o caminhão a cada segundo, pela mesma conta do serviço (da última posição até a previsão de chegada, em linha reta no tempo). O serviço continua sendo a fonte: cada leitura nova corrige a posição, e o caminhão nunca anda para trás.
+
 | Relógio | Passo real | Estrada por passo |
 |---|---|---|
 | 1× | 30 s | 30 s |

@@ -6,7 +6,7 @@ Em 23/11/2026, depois da revisão visual (explicação 14), quatro pedidos do gr
 
 | Pedido | O que foi feito |
 |---|---|
-| Atualizar a localização da carga, sem derrubar o sistema | Botão **Atualizar localização** no canto do mapa. Atualiza na hora e centraliza o caminhão. Depois espera 15 s, mostrando a contagem ("de novo em 12 s"). Só aparece com o caminhão na estrada (aguardando coleta ou em trânsito). |
+| Atualizar a localização da carga, sem derrubar o sistema | Botão **Atualizar localização** no canto do mapa. Atualiza na hora e centraliza o caminhão. Depois espera 15 s (5 s desde a [explicação 17](17-logo-linha-do-tempo-e-caminhao-continuo.md)), mostrando a contagem ("de novo em 12 s"). Só aparece com o caminhão na estrada (aguardando coleta ou em trânsito). |
 | Limpar as notificações | Botão **Marcar todas como lidas** no topo do painel do sino, que só aparece quando há notificação não lida. Usa uma rota nova: `POST /api/v1/logistica/notificacoes/marcar-todas-lidas` (API-19). |
 | Ícones da linha do tempo tortos | A linha vertical passa a ser centralizada pelo meio do círculo, e não por uma distância fixa. O título fica na altura do centro do ícone. |
 | Tipo da ocorrência (mockup do UX) | O formulário "Reportar ocorrência" pede o tipo: Atraso, Avaria na carga, Desvio de rota ou Outro. O tipo aparece na linha do tempo e na notificação da outra parte ("O comprador reportou uma ocorrência (avaria na carga)..."). |
