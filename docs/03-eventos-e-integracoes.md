@@ -212,7 +212,7 @@ Só os nossos dois serviços usam. O `transportadoras-service` grava o ajuste na
 | | ✅ Administrador do módulo: o Identity-Service tem `platform_role` `PLATFORM_ADMIN` no token (código e seed, 10/11/2026); passamos a usar esse claim, e `TENANT_ADMIN` continua administrando só a empresa | — |
 | **Turma (formato de erro)** | A Autenticação propôs `code` (ex.: `ERR-AUTH-001`) e `correlationId`, sem `instance` e `timestamp`; nós e Produtos usamos `codigo`, `correlationId`, `instance` e `timestamp`. Produtos mantém `codigo` até haver consenso. Se mudar, mudam o `comum/erros.py`, os testes e as duas ESPs | Média |
 | **Compra e Demanda** | ✅ O `demanda_criada` (repositório `LuccaStuart/portal-b2b-compra-demanda`, commit `f7cdf10`, 12/11/2026) já traz `destino` `{cidade, uf}`. Falta o grupo de Pedidos levá-lo até o pedido (no `pedido_criado` ou no fechamento do leilão) | Baixa |
-| **Infraestrutura** | Criar `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` no `init_topics.sh` e no `CONTRACTS.md` | Alta |
+| **Infraestrutura** | Criar `rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel` e `relogio_ajustado` no `init_topics.sh` e no `CONTRACTS.md` (pedido na [issue #5 do kit](https://github.com/Printf-PedroCardoso/portal-b2b-kit-infra/issues/5), com o build e as variáveis dos dois serviços) | Alta |
 | | Registrar `transportadoras-service` como consumidor de `frete_selecionado` e de `pedido_atualizado` | Média |
 | | Correções do kit listadas na [análise](04-analise-do-kit.md) | Alta |
 | **Banco de Dados** | Aplicar a proposta de DDL dos schemas `logistica` e `transportadoras` ([arquitetura](02-arquitetura-proposta.md), seção 9) e a correção dos GRANTs (K1) | Alta |
