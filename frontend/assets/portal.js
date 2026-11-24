@@ -11,7 +11,6 @@ const Portal = (() => {
   const ICONES = {
     atualizar: '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>',
     lapis: '<path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5Z"/><path d="m15 5 4 4"/>',
-    folha: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
     caminhao: '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
     caixa: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
     calendario: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
@@ -162,7 +161,7 @@ const Portal = (() => {
     const s = sessao();
     const itens = MENUS[s && s.usuario.perfil === 'transportadora' ? 'transportadora' : 'outros'];
     document.getElementById('lateral').innerHTML = `
-      <div class="marca">${icone('folha', '')}<span>Portal B2B</span></div>
+      <div class="logo"><span class="logo-anel" aria-hidden="true"></span><span>Portal B2B</span></div>
       <ul class="menu">
         ${itens.map(([id, href, ic, texto]) => `<li><a href="${href}" class="${ativo === id ? 'ativo' : ''}">${icone(ic)}${texto}</a></li>`).join('')}
       </ul>
@@ -274,12 +273,17 @@ const Portal = (() => {
   // ------------------------------------------------------------------ relógio do módulo
   // O serviço é consultado a cada 5 s; entre uma consulta e outra, a hora anda aqui mesmo, no
   // fator atual (sem isso, em 3600x o relógio do topo pulava 5 h de uma vez). Quando o fator
-  // muda, as páginas recebem o evento "portal:relogio" e atualizam na hora.
+  // muda, as páginas recebem o evento "portal:relogio" e atualizam na hora. A cada segundo sai o
+  // evento "portal:segundo", para as telas moverem o que depende da hora (o caminhão no mapa).
   const relogio = {
-    horaDoModulo: null, fator: 1, versao: null, sincronizadoEm: 0,
+    horaDoModulo: null, fator: 1, versao: null, sincronizadoEm: 0, ultima: 0,
     agora() {
       if (!this.horaDoModulo) return null;
-      return new Date(new Date(this.horaDoModulo).getTime() + (Date.now() - this.sincronizadoEm) * this.fator);
+      const calculada = new Date(this.horaDoModulo).getTime() + (Date.now() - this.sincronizadoEm) * this.fator;
+      // A hora do módulo nunca volta. Sem isto, cada acerto com o serviço podia recuar a hora alguns
+      // minutos (o tempo da resposta na rede, multiplicado pelo fator).
+      this.ultima = Math.max(this.ultima, calculada);
+      return new Date(this.ultima);
     },
     // Intervalo de atualização das telas: mais curto com o relógio acelerado.
     intervaloMs() { return this.fator > 1 ? 2000 : 5000; },
@@ -289,6 +293,7 @@ const Portal = (() => {
     const agora = relogio.agora();
     const hora = document.getElementById('relogio-hora');
     if (agora && hora) hora.textContent = formato.completa(agora.toISOString());
+    if (agora) document.dispatchEvent(new CustomEvent('portal:segundo', { detail: { agora } }));
   }
 
   // Repete `funcao` no intervalo do relógio (5 s, ou 2 s acelerado) e também logo depois de
@@ -304,6 +309,9 @@ const Portal = (() => {
       const r = await api('/api/v1/logistica/relogio');
       const mudou = relogio.versao !== null && r.versao !== relogio.versao;  // cada ajuste muda a versão
       Object.assign(relogio, { horaDoModulo: r.horaDoModulo, fator: r.fator, versao: r.versao, sincronizadoEm: Date.now() });
+      // Depois de uma desaceleração (3600x → 1x), a hora calculada aqui pode ter passado da do serviço:
+      // vale a do serviço, senão o relógio ficaria parado até o serviço alcançá-lo.
+      if (mudou) relogio.ultima = 0;
       mostrarRelogio();
       if (mudou) document.dispatchEvent(new CustomEvent('portal:relogio', { detail: { ...r } }));
       const fator = document.getElementById('relogio-fator');

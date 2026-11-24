@@ -2,14 +2,17 @@
  * Rastreamento da entrega (etapa 3), no layout do mockup do grupo de UX
  * (portal_b2b_07_rastreamento.png).
  *
- * A tela consulta a API a cada 5 s (decisão D10). A posição do caminhão é
- * simulada pelo serviço de transportadoras e muda a cada 30 s; as datas estão
- * na hora do módulo, que o administrador pode acelerar.
+ * A tela consulta a API a cada 5 s, ou 2 s com o relógio acelerado (decisão D10). O serviço de
+ * transportadoras publica uma posição a cada 30 min da hora do módulo; entre uma leitura e outra,
+ * o caminhão anda aqui, a cada segundo, pela mesma conta do serviço (linha reta no tempo, da
+ * última leitura até a previsão de chegada). Assim ele desliza no mapa em vez de pular.
  */
 (() => {
   const { api, escapar, erroHtml, formato, pilulaStatus, icone, STATUS_ENTREGA } = Portal;
   const entregaId = new URLSearchParams(location.search).get('id');
   const mapa = { leaflet: null, percorrida: null, restante: null, caminhao: null, origem: null, destino: null, ajustado: false };
+  // Última leitura do serviço e o progresso mostrado (que nunca volta).
+  const leitura = { status: null, progresso: 0, em: null, chegada: null, rota: [], temRota: false, posicao: null, placa: '', mostrado: 0 };
 
   const TITULOS = {
     VIAGEM_ALOCADA: 'Motorista escalado',
@@ -55,13 +58,21 @@
   const par = (rotulo, valor) => `<dt>${escapar(rotulo)}</dt><dd>${valor}</dd>`;
 
   // ------------------------------------------------------------------ faixa de resumo
+  const RAIO_ANEL = 27;
+  const VOLTA_ANEL = 2 * Math.PI * RAIO_ANEL;
   function anel(progresso) {
-    const raio = 27;
-    const volta = 2 * Math.PI * raio;
-    return `<div class="anel" role="img" aria-label="Progresso ${formato.porcentagem(progresso)}">
-      <svg viewBox="0 0 64 64"><circle class="trilho" cx="32" cy="32" r="${raio}"/>
-      <circle class="valor" cx="32" cy="32" r="${raio}" stroke-dasharray="${volta}" stroke-dashoffset="${volta * (1 - progresso)}"/></svg>
+    return `<div class="anel" id="anel" role="img" aria-label="Progresso ${formato.porcentagem(progresso)}">
+      <svg viewBox="0 0 64 64"><circle class="trilho" cx="32" cy="32" r="${RAIO_ANEL}"/>
+      <circle class="valor" cx="32" cy="32" r="${RAIO_ANEL}" stroke-dasharray="${VOLTA_ANEL}" stroke-dashoffset="${VOLTA_ANEL * (1 - progresso)}"/></svg>
       <span>${formato.porcentagem(progresso)}</span></div>`;
+  }
+
+  function atualizarAnel(progresso) {
+    const elemento = document.getElementById('anel');
+    if (!elemento) return;
+    elemento.querySelector('.valor').setAttribute('stroke-dashoffset', VOLTA_ANEL * (1 - progresso));
+    elemento.querySelector('span').textContent = formato.porcentagem(progresso);
+    elemento.setAttribute('aria-label', `Progresso ${formato.porcentagem(progresso)}`);
   }
 
   function etapas(eventos) {
@@ -71,14 +82,16 @@
 
   function resumo(e, r) {
     const s = STATUS_ENTREGA[e.status] || { texto: e.status };
-    let previsao = `<strong>${formato.curta(e.previsao_chegada)}</strong><div class="sub">${formato.relativo(e.previsao_chegada, r.horaDoModulo)}</div>`;
+    const agora = Portal.relogio.agora();
+    let previsao = `<strong>${formato.curta(e.previsao_chegada)}</strong><div class="sub" id="previsao-relativa">${
+      formato.relativo(e.previsao_chegada, agora ? agora.toISOString() : r.horaDoModulo)}</div>`;
     if (e.status === 'ENTREGUE') {
       previsao = `<strong>${formato.curta(e.entregue_em)}</strong><div class="sub">${e.no_prazo
         ? 'Entregue no prazo' : `Entregue com ${Math.round(e.atraso_horas)} h de atraso`}</div>`;
     }
     document.getElementById('resumo').innerHTML = `
       <div><span class="icone-grande">${icone('caixa')}</span><div><small>Status da entrega</small>${pilulaStatus(e.status)}</div></div>
-      <div>${anel(Number(r.progresso))}<div><small>Progresso</small><strong style="font-size:15px">${etapas(r.eventos)} de 5 etapas</strong>
+      <div>${anel(leitura.mostrado)}<div><small>Progresso</small><strong style="font-size:15px">${etapas(r.eventos)} de 5 etapas</strong>
         <div class="sub">${escapar(s.texto)}</div></div></div>
       <div><span class="icone-grande">${icone('calendario')}</span><div><small>${e.status === 'ENTREGUE' ? 'Chegada' : 'Previsão de chegada'}</small>${previsao}</div></div>
       <div><span class="icone-grande">${icone('predio')}</span><div><small>Transportadora</small>
@@ -98,7 +111,8 @@
       tipo: 'OCORRENCIA', ocorrido_em: o.ocorrida_em,
       descricao: `${o.tipo && o.tipo !== 'OUTRO' ? `${TIPOS_OCORRENCIA[o.tipo] || o.tipo} · ` : ''}Reportada pelo ${o.autor_papel}: ${o.descricao}`,
     }));
-    const eventos = [...r.eventos.filter((ev, i, todos) => ev.tipo !== 'POSICAO' || todos.findIndex((x) => x.tipo === 'POSICAO') === i),
+    // Das posições, só a última entra ("Carga em trânsito" com a hora da leitura mais recente).
+    const eventos = [...r.eventos.filter((ev, i, todos) => ev.tipo !== 'POSICAO' || todos.findLastIndex((x) => x.tipo === 'POSICAO') === i),
       ...ocorrencias].sort((a, b) => new Date(a.ocorrido_em) - new Date(b.ocorrido_em));
     const encerrada = ['ENTREGUE', 'CANCELADA', 'RECUSADA'].includes(e.status);
     const itens = eventos.map((ev, i) => {
@@ -242,11 +256,38 @@
     return `${escapar(cidade.cidade)} - ${escapar(cidade.uf)}<br><span class="tag ${cinza ? 'cinza' : ''}">${tag}</span>`;
   }
 
+  // Guarda a leitura do serviço. Em trânsito, o progresso mostrado nunca volta: quando o atraso
+  // aparece, a previsão de chegada aumenta e a conta daqui pode ter passado um pouco da do serviço;
+  // o caminhão espera o serviço alcançá-lo, em vez de recuar no mapa.
+  function registrarLeitura(e, r) {
+    const origem = [r.origem.lat, r.origem.lon];
+    const destino = [r.destino.lat, r.destino.lon];
+    Object.assign(leitura, {
+      status: e.status, progresso: Number(r.progresso), em: r.posicaoEm, chegada: r.previsaoChegada || e.previsao_chegada,
+      rota: r.rota.length ? r.rota : [origem, destino], temRota: r.rota.length > 0,
+      posicao: r.posicao ? [r.posicao.lat, r.posicao.lon] : null, placa: e.veiculo_placa || '',
+    });
+    const agora = Portal.relogio.agora();
+    leitura.mostrado = e.status === 'EM_TRANSITO'
+      ? Math.max(leitura.mostrado, leitura.progresso, agora ? progressoEstimado(agora) : 0) : leitura.progresso;
+  }
+
+  // A mesma conta do serviço (simulacao.progresso): da última leitura até a chegada, em linha reta no tempo.
+  function progressoEstimado(agora) {
+    const { progresso: p0, em, chegada } = leitura;
+    if (leitura.status !== 'EM_TRANSITO' || !em || !chegada) return p0;
+    const t0 = new Date(em).getTime();
+    const t1 = new Date(chegada).getTime();
+    const t = agora.getTime();
+    if (t1 <= t0 || t <= t0) return p0;
+    // Para antes do destino: quem confirma a entrega é o serviço.
+    return Math.min(0.995, p0 + ((1 - p0) * (t - t0)) / (t1 - t0));
+  }
+
   function atualizarMapa(e, r) {
     if (typeof L === 'undefined') { mapaEmTexto(e, r); return; }
     const origem = [r.origem.lat, r.origem.lon];
     const destino = [r.destino.lat, r.destino.lon];
-    const rota = r.rota.length ? r.rota : [origem, destino];
 
     if (!mapa.leaflet) {
       mapa.leaflet = L.map('mapa', { zoomControl: true, attributionControl: true, scrollWheelZoom: false });
@@ -262,14 +303,28 @@
       mapa.percorrida = L.polyline([], { color: '#84cc16', weight: 5, lineCap: 'round' }).addTo(mapa.leaflet);
     }
 
-    const { percorrida, restante, ponto } = dividirRota(rota, Number(r.progresso));
-    const temViagem = r.rota.length > 0 && e.status !== 'CANCELADA' && e.status !== 'RECUSADA';
-    mapa.percorrida.setLatLngs(temViagem ? percorrida : []);
-    mapa.restante.setLatLngs(temViagem ? restante : rota);
+    desenharPosicao(Portal.relogio.agora() || new Date(r.horaDoModulo));
 
-    const posicao = r.posicao ? [r.posicao.lat, r.posicao.lon] : ponto;
-    const textoCaminhao = `Veículo ${escapar(e.veiculo_placa || '')}<small>${r.posicaoEm
-      ? `Atualizado ${formato.relativo(r.posicaoEm, r.horaDoModulo).toLowerCase()} (hora do módulo)` : ''}</small>`;
+    if (!mapa.ajustado) {
+      mapa.leaflet.fitBounds(L.latLngBounds([origem, destino, ...leitura.rota]), { padding: [70, 70] });
+      mapa.ajustado = true;
+    }
+  }
+
+  // Chamado a cada leitura e a cada segundo do relógio (evento "portal:segundo").
+  function desenharPosicao(agora) {
+    if (!mapa.leaflet || !leitura.status) return;
+    const emTransito = leitura.status === 'EM_TRANSITO';
+    if (emTransito) leitura.mostrado = Math.max(leitura.mostrado, progressoEstimado(agora));
+    const { percorrida, restante, ponto } = dividirRota(leitura.rota, leitura.mostrado);
+    const temViagem = leitura.temRota && !['CANCELADA', 'RECUSADA'].includes(leitura.status);
+    mapa.percorrida.setLatLngs(temViagem ? percorrida : []);
+    mapa.restante.setLatLngs(temViagem ? restante : leitura.rota);
+
+    const posicao = emTransito || !leitura.posicao ? ponto : leitura.posicao;
+    const legenda = emTransito ? `Posição às ${formato.hora(agora.toISOString())} (hora do módulo)`
+      : leitura.status === 'AGUARDANDO_COLETA' ? 'Aguardando a coleta' : '';
+    const textoCaminhao = `Veículo ${escapar(leitura.placa)}<small>${legenda}</small>`;
     if (temViagem && !mapa.caminhao) {
       mapa.caminhao = L.marker(posicao, {
         icon: L.divIcon({ className: '', html: `<div class="marcador-caminhao">${Portal.icone('caminhao', '')}</div>`, iconSize: [40, 40], iconAnchor: [20, 20] }),
@@ -284,18 +339,25 @@
         mapa.caminhao = null;
       }
     }
+  }
 
-    if (!mapa.ajustado) {
-      mapa.leaflet.fitBounds(L.latLngBounds([origem, destino, ...rota]), { padding: [70, 70] });
-      mapa.ajustado = true;
+  // A cada segundo: caminhão, anel de progresso e "Em N dias" acompanham o relógio do topo.
+  function aCadaSegundo(ev) {
+    if (!leitura.status) return;
+    const { agora } = ev.detail;
+    desenharPosicao(agora);
+    atualizarAnel(leitura.mostrado);
+    const relativa = document.getElementById('previsao-relativa');
+    if (relativa && leitura.chegada && leitura.status !== 'ENTREGUE') {
+      relativa.textContent = formato.relativo(leitura.chegada, agora.toISOString());
     }
   }
 
   // ------------------------------------------------------------------ ciclo de atualização
-  // A tela já atualiza sozinha a cada 5 s. O botão força uma atualização na hora e centraliza o
+  // A tela já atualiza sozinha a cada 5 s (2 s acelerado). O botão força uma atualização na hora e centraliza o
   // caminhão, com dois limites para não sobrecarregar o serviço: uma consulta por vez
   // (`emAndamento`) e uma espera de ESPERA_BOTAO_S segundos entre um clique e o próximo.
-  const ESPERA_BOTAO_S = 15;
+  const ESPERA_BOTAO_S = 5;
   let emAndamento = null;
 
   function carregar() {
@@ -329,6 +391,7 @@
       document.getElementById('mensagem').innerHTML = '';
       document.getElementById('titulo').textContent = `Entrega #${e.pedido_id}`;
       document.title = `Entrega ${e.pedido_id} · Portal B2B`;
+      registrarLeitura(e, r);
       resumo(e, r);
       linhaDoTempo(e, r);
       detalhes(e);
@@ -357,6 +420,7 @@
       document.getElementById('atualizar-posicao').addEventListener('click', atualizarAgora);
       carregar();
       Portal.repetir(carregar);  // 5 s, ou 2 s com o relógio acelerado
+      document.addEventListener('portal:segundo', aCadaSegundo);
     },
   });
 })();

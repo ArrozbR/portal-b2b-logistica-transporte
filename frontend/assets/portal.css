@@ -50,8 +50,10 @@ svg.icone { width: 18px; height: 18px; flex: none; }
   background: var(--cartao); border-right: 1px solid var(--borda);
   padding: 20px 14px; position: sticky; top: 0; height: 100vh;
 }
-.marca { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; padding: 2px 8px 22px; }
-.marca svg { width: 30px; height: 30px; }
+/* Logo do mockup do UX (.brand-mark): anel verde-limão aberto, girado 30°. A classe não pode ser
+   .marca, que é a dos ícones da linha do tempo: o espaçamento do logo deslocava aqueles ícones. */
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 22px; letter-spacing: -.3px; padding: 2px 8px 24px; }
+.logo-anel { flex: none; width: 30px; height: 30px; border: 7px solid #9be800; border-right-color: transparent; border-radius: 50%; transform: rotate(-30deg); }
 .menu { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .menu a, .menu span {
   display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 10px;
@@ -243,7 +245,7 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 .linha-tempo li:last-child { padding-bottom: 0; }
 .linha-tempo li:last-child::before { display: none; }
 .linha-tempo li.pendente::before { background: none; width: 0; border-left: 2px dashed #d1d5db; opacity: 1; }
-.linha-tempo .marca { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--verde); color: #fff; }
+.linha-tempo .marca { flex: none; box-sizing: border-box; padding: 0; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--verde); color: #fff; }
 .linha-tempo .marca svg { width: 16px; height: 16px; display: block; }
 .linha-tempo .atual .marca { background: var(--verde-claro); color: var(--verde-escuro); box-shadow: 0 0 0 3px var(--verde-fundo); }
 .linha-tempo .alerta .marca { background: var(--ambar); }
@@ -394,8 +396,8 @@ svg.icone { width: 18px; height: 18px; flex: none; }
   .app { grid-template-columns: 1fr; }
   .lateral { position: static; height: auto; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--borda);
     display: flex; align-items: center; gap: 12px; overflow-x: auto; }
-  .lateral .marca { padding: 0 6px 0 0; font-size: 17px; flex: none; }
-  .lateral .marca svg { width: 24px; height: 24px; }
+  .lateral .logo { padding: 0 6px 0 0; font-size: 17px; flex: none; }
+  .lateral .logo-anel { width: 24px; height: 24px; border-width: 6px; }
   .menu { grid-auto-flow: column; gap: 4px; }
   .menu a { padding: 9px 12px; white-space: nowrap; }
   .lateral .rodape { display: none; }
@@ -420,7 +422,7 @@ svg.icone { width: 18px; height: 18px; flex: none; }
   .cartao { overflow-x: auto; }
   .lateral { scrollbar-width: none; }
   .lateral::-webkit-scrollbar { display: none; }
-  .lateral .marca span { display: none; }
+  .lateral .logo span:not(.logo-anel) { display: none; }
   .topo { justify-content: space-between; padding-top: 8px; padding-bottom: 8px; }
   .usuario small { display: none; }
   .cabecalho h1 { font-size: 24px; }
