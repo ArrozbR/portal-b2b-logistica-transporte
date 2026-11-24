@@ -54,3 +54,15 @@ def test_valor_da_cotacao_digitada_tem_no_maximo_duas_casas(valor, aceito):
     else:
         with pytest.raises(ValidationError):
             DadosCotacao.model_validate_json(corpo)
+
+
+def test_validade_so_com_a_data_vale_ate_o_fim_do_dia_em_brasilia():
+    from transportadoras.api import DadosCotacao
+    base = {"valor": "100.00", "dataEntregaPrevista": "2026-11-20"}
+    so_data = DadosCotacao(**base, validaAte="2026-11-12").validaAte
+    assert so_data.astimezone(timezone.utc) == datetime(2026, 11, 13, 2, 59, 59, tzinfo=timezone.utc)
+    # Com hora, continua como antes (sem fuso, vale o de Brasília).
+    com_hora = DadosCotacao(**base, validaAte="2026-11-12T10:00:00").validaAte
+    assert com_hora.astimezone(timezone.utc) == datetime(2026, 11, 12, 13, 0, tzinfo=timezone.utc)
+    with pytest.raises(ValueError):
+        DadosCotacao(**base, validaAte="2026-13-40")

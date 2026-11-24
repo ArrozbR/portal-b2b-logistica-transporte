@@ -83,7 +83,7 @@
         carregar();
       });
       carregar();
-      setInterval(carregar, 5000);
+      Portal.repetir(carregar);
     },
   });
 })();

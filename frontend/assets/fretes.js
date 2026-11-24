@@ -24,6 +24,7 @@
     }).formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
     return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
   }
+  const diaDoModulo = (iso) => paraCampoDataHora(iso).slice(0, 10);  // AAAA-MM-DD em Brasília
   const diaSeguinte = (isoData) => new Date(new Date(`${isoData}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
   const normalizar = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -83,6 +84,7 @@
       <dt>Peso</dt><dd>${formato.toneladas(c.peso_kg)}</dd>
       <dt>Distância</dt><dd>${Number(c.distancia_km).toLocaleString('pt-BR')} km</dd>
       <dt>Data de coleta</dt><dd>${formato.data(c.data_coleta_prevista)}</dd>
+      <dt>Entrega desejada</dt><dd>${c.data_entrega_desejada ? `até ${formato.data(c.data_entrega_desejada)}` : 'Não informada pelo comprador'}</dd>
       <dt>Cotar até</dt><dd>${formato.curta(c.prazo_decisao_em)}</dd>
       <dt>Status</dt><dd><span class="pilula ${cor}">${texto}</span></dd></dl>`;
 
@@ -101,10 +103,11 @@
         <div class="campo" id="c-valor"><label for="valor">Valor do frete <span class="obrigatorio">*</span></label>
           <div class="com-prefixo"><span>R$</span><input id="valor" name="valor" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" required></div></div>
         <div class="campo" id="c-entrega"><label for="entrega">Prazo estimado (data de entrega) <span class="obrigatorio">*</span></label>
-          <input id="entrega" name="entrega" type="date" min="${diaSeguinte(c.data_coleta_prevista)}" required></div>
-        <div class="campo" id="c-validade"><label for="validade">Validade da proposta <span class="obrigatorio">*</span></label>
-          <input id="validade" name="validade" type="datetime-local" value="${paraCampoDataHora(c.prazo_decisao_em)}" required>
-          <span class="ajuda">Hora do módulo; precisa ser depois de ${formato.completa(estado.horaDoModulo)}.</span></div>
+          <input id="entrega" name="entrega" type="date" min="${diaSeguinte(c.data_coleta_prevista)}" required>
+          ${c.data_entrega_desejada ? `<span class="ajuda">O comprador quer a carga até ${formato.data(c.data_entrega_desejada)}.</span>` : ''}</div>
+        <div class="campo" id="c-validade"><label for="validade">Validade da proposta (último dia) <span class="obrigatorio">*</span></label>
+          <input id="validade" name="validade" type="date" min="${diaDoModulo(estado.horaDoModulo)}" value="${diaDoModulo(c.prazo_decisao_em)}" required>
+          <span class="ajuda">A proposta vale até o fim desse dia (hora do módulo, horário de Brasília).</span></div>
         <div class="campo"><label for="observacoes">Observações</label>
           <textarea id="observacoes" name="observacoes" maxlength="500" placeholder="Informe condições, tipo de veículo, restrições ou demais informações (opcional)."></textarea>
           <div class="contador-caracteres" id="contador">0/500</div></div>
@@ -137,17 +140,30 @@
       marcarErro('c-valor', 'Use no máximo 2 casas decimais (centavos), a partir de R$ 0,01.'); ok = false;
     }
     if (!entrega || entrega <= c.data_coleta_prevista) { marcarErro('c-entrega', 'A entrega precisa ser depois da data de coleta.'); ok = false; }
-    if (!validade || new Date(`${validade}:00-03:00`) <= new Date(estado.horaDoModulo)) {
-      marcarErro('c-validade', 'A validade precisa ser depois da hora atual do módulo.'); ok = false;
+    if (!validade || validade < diaDoModulo(estado.horaDoModulo)) {
+      marcarErro('c-validade', 'A validade não pode ser antes de hoje (hora do módulo).'); ok = false;
     }
     if (!ok) return;
+    // Entrega depois da data desejada não é proibida (a data é um desejo do comprador, e ele decide
+    // na comparação), mas a transportadora confirma antes de enviar.
+    if (c.data_entrega_desejada && entrega > c.data_entrega_desejada) {
+      // Fechar a janela sem escolher (Esc ou clique fora) também não envia.
+      const seguir = await new Promise((resolver) => Portal.modal({
+        titulo: 'Entrega depois da data desejada',
+        conteudo: `<p>O comprador quer a carga até <strong>${formato.data(c.data_entrega_desejada)}</strong>, e a sua entrega é em
+          <strong>${formato.data(entrega)}</strong>. Ele ainda pode escolher a sua cotação. Enviar assim mesmo?</p>`,
+        botoes: [{ texto: 'Revisar a data', acao: () => resolver(false) },
+          { texto: 'Enviar assim mesmo', classe: 'primario', acao: () => resolver(true) }],
+      }));
+      if (!seguir) return;
+    }
 
     const botao = form.querySelector('button[type=submit]');
     botao.disabled = true;
     try {
       const r = await api(`/api/v1/transportadoras/solicitacoes/${encodeURIComponent(c.id)}/cotacoes`, {
         metodo: 'POST',
-        corpo: { valor, dataEntregaPrevista: entrega, validaAte: `${validade}:00-03:00`, observacoes: form.observacoes.value.trim() || null },
+        corpo: { valor, dataEntregaPrevista: entrega, validaAte: validade, observacoes: form.observacoes.value.trim() || null },
       });
       avisoRapido(`Cotação enviada: ${formato.moeda(r.preco)}, ${r.prazoDias} dias úteis. Protocolo ${r.cotacaoId.slice(0, 8)}.`);
       await carregar(true);
@@ -211,7 +227,7 @@
       document.getElementById('todas').addEventListener('change', (ev) => { estado.todas = ev.target.checked; carregar(); });
       renderPainel();
       await carregar();
-      setInterval(() => carregar(), 5000);
+      Portal.repetir(() => carregar());
     },
   });
 })();

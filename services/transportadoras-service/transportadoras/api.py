@@ -7,7 +7,7 @@
 
 import uuid
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Literal
 
@@ -57,8 +57,19 @@ class DadosCotacao(BaseModel):
     # virava 0.00 na logística, violava preco > 0 e a cotação ia para a DLT sem a transportadora saber.
     valor: Decimal = Field(..., ge=Decimal("0.01"), le=10_000_000, decimal_places=2, description="Valor do frete em R$")
     dataEntregaPrevista: date = Field(..., description="Data em que a carga chega (prazo estimado)")
-    validaAte: datetime = Field(..., description="Até quando a proposta vale (hora do módulo)")
+    validaAte: datetime = Field(..., description="Até quando a proposta vale (hora do módulo). Só a data "
+                                                 "(AAAA-MM-DD) vale até o fim desse dia, no horário de Brasília")
     observacoes: str | None = Field(None, max_length=500)
+
+    @field_validator("validaAte", mode="before")
+    @classmethod
+    def so_a_data_vale_o_dia_todo(cls, valor):
+        # A tela pede o último dia da proposta, como o mockup do grupo de UX. Sem isto, "2026-11-25"
+        # viraria 00:00 desse dia, e a proposta venceria no começo do dia escolhido.
+        if isinstance(valor, str) and len(valor) == 10:
+            dia = date.fromisoformat(valor)
+            return datetime.combine(dia, time(23, 59, 59), tzinfo=BRASILIA)
+        return valor
 
     @field_validator("validaAte")
     @classmethod
@@ -70,6 +81,7 @@ class DadosCotacao(BaseModel):
 SQL_CARGAS = """
     SELECT s.id, s.pedido_id, s.produto_nome, s.tipo_carga, s.peso_kg, s.origem_cidade, s.origem_uf,
            s.destino_cidade, s.destino_uf, s.distancia_km, s.data_coleta_prevista, s.prazo_decisao_em,
+           s.data_entrega_desejada,
            s.status, s.cancelada, s.transportadora_vencedora_id,
            c.id AS minha_cotacao_id, c.preco AS minha_cotacao_preco, c.prazo_dias AS minha_cotacao_prazo,
            c.data_entrega_prevista AS minha_cotacao_entrega, c.origem_cotacao AS minha_cotacao_origem,

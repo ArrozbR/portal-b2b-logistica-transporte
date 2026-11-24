@@ -253,6 +253,7 @@ const Portal = (() => {
     }
     atualizarRelogio();
     setInterval(atualizarRelogio, 5000);
+    setInterval(mostrarRelogio, 1000);
     document.addEventListener('click', (ev) => {
       document.querySelectorAll('.painel-flutuante').forEach((p) => {
         if (!p.parentElement.contains(ev.target)) p.hidden = true;
@@ -271,13 +272,40 @@ const Portal = (() => {
   }
 
   // ------------------------------------------------------------------ relógio do módulo
-  const relogio = { horaDoModulo: null, fator: 1 };
+  // O serviço é consultado a cada 5 s; entre uma consulta e outra, a hora anda aqui mesmo, no
+  // fator atual (sem isso, em 3600x o relógio do topo pulava 5 h de uma vez). Quando o fator
+  // muda, as páginas recebem o evento "portal:relogio" e atualizam na hora.
+  const relogio = {
+    horaDoModulo: null, fator: 1, versao: null, sincronizadoEm: 0,
+    agora() {
+      if (!this.horaDoModulo) return null;
+      return new Date(new Date(this.horaDoModulo).getTime() + (Date.now() - this.sincronizadoEm) * this.fator);
+    },
+    // Intervalo de atualização das telas: mais curto com o relógio acelerado.
+    intervaloMs() { return this.fator > 1 ? 2000 : 5000; },
+  };
+
+  function mostrarRelogio() {
+    const agora = relogio.agora();
+    const hora = document.getElementById('relogio-hora');
+    if (agora && hora) hora.textContent = formato.completa(agora.toISOString());
+  }
+
+  // Repete `funcao` no intervalo do relógio (5 s, ou 2 s acelerado) e também logo depois de
+  // uma mudança de velocidade.
+  function repetir(funcao) {
+    const proxima = () => setTimeout(async () => { try { await funcao(); } finally { proxima(); } }, relogio.intervaloMs());
+    proxima();
+    document.addEventListener('portal:relogio', () => funcao());
+  }
+
   async function atualizarRelogio() {
     try {
       const r = await api('/api/v1/logistica/relogio');
-      relogio.horaDoModulo = r.horaDoModulo;
-      relogio.fator = r.fator;
-      document.getElementById('relogio-hora').textContent = formato.completa(r.horaDoModulo);
+      const mudou = relogio.versao !== null && r.versao !== relogio.versao;  // cada ajuste muda a versão
+      Object.assign(relogio, { horaDoModulo: r.horaDoModulo, fator: r.fator, versao: r.versao, sincronizadoEm: Date.now() });
+      mostrarRelogio();
+      if (mudou) document.dispatchEvent(new CustomEvent('portal:relogio', { detail: { ...r } }));
       const fator = document.getElementById('relogio-fator');
       fator.textContent = `${Number(r.fator).toLocaleString('pt-BR')}×`;
       fator.classList.toggle('rapido', r.fator > 1);
@@ -510,7 +538,7 @@ const Portal = (() => {
   }
 
   return {
-    iniciar, api, icone, escapar, erroHtml, formato, pilulaStatus, STATUS_ENTREGA, relogio, sessao, avisoRapido,
+    iniciar, api, icone, escapar, erroHtml, formato, pilulaStatus, STATUS_ENTREGA, relogio, repetir, sessao, avisoRapido,
     modal, baixar, inicioDoPerfil,
   };
 })();

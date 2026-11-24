@@ -82,3 +82,21 @@ def selos(cotacoes: list[CotacaoCandidata], pontualidade: dict[str, float] | Non
         if c.id == recomendada:
             resultado[c.id].append(RECOMENDADA)
     return resultado
+
+
+# Dados pessoais do motorista que cada perfil vê na entrega (API-09, API-11 e documentos).
+# O comprador só precisa saber quem leva a carga e falar com a transportadora (é o que o
+# mockup do grupo de UX mostra); o fornecedor combina a coleta com o motorista, então vê o
+# telefone; o admin vê tudo. A transportadora tem as próprias telas da frota.
+DADOS_DO_MOTORISTA = ("motorista_telefone", "motorista_cnh_mascarada")
+DADOS_DO_MOTORISTA_POR_PERFIL = {
+    "admin": {"motorista_telefone", "motorista_cnh_mascarada"},
+    "fornecedor": {"motorista_telefone"},
+    "comprador": set(),
+}
+
+
+def ocultar_dados_do_motorista(entrega: dict, perfil: str) -> dict:
+    """Cópia da entrega com o telefone e a CNH do motorista em None quando o perfil não pode vê-los."""
+    visiveis = DADOS_DO_MOTORISTA_POR_PERFIL.get(perfil, set())
+    return {**entrega, **{campo: None for campo in DADOS_DO_MOTORISTA if campo not in visiveis and campo in entrega}}

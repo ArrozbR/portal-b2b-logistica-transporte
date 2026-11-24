@@ -28,7 +28,7 @@ from comum.web import Pagina, paginacao, resposta_paginada
 from .documentos import DocumentoIndisponivel
 from .documentos import gerar as gerar_documento
 from .notificacoes import notificar, texto_ocorrencia
-from .regras import CotacaoCandidata, preco_por_tonelada_km, selos
+from .regras import CotacaoCandidata, ocultar_dados_do_motorista, preco_por_tonelada_km, selos
 from .servico import AUTOMATICO, ESCOLHA_COMPRADOR, Logistica, agora_real, iso, linha_para_json, para_json
 
 StatusSolicitacao = Literal["ABERTA", "COTADA", "SEM_COTACAO", "SELECIONADA", "INDISPONIVEL", "CANCELADA"]
@@ -314,7 +314,7 @@ def criar_rotas(db: BancoDeDados, logistica: Logistica) -> APIRouter:
         if entrega is None:
             raise Problema(404, "ENTREGA_NAO_ENCONTRADA", "Entrega não encontrada",
                            f"Não existe entrega {entrega_id} visível para você.")
-        return entrega
+        return ocultar_dados_do_motorista(entrega, usuario.perfil)
 
     @rotas.get("/entregas/{entrega_id}", tags=["entregas e rastreio"],
                summary="Resumo da entrega: status, carga, transportadora, motorista e veículo")

@@ -141,10 +141,13 @@
       par('Prazo prometido', formato.data(e.prazo_prometido)),
     ].join('');
 
+    // Telefone e CNH do motorista dependem do perfil (a API manda null para quem não pode ver):
+    // o comprador não vê nenhum dos dois, o fornecedor vê o telefone e o admin vê os dois.
+    const perfil = Portal.sessao().usuario.perfil;
     document.getElementById('dados-motorista').innerHTML = e.motorista_nome ? [
       par('Motorista', escapar(e.motorista_nome)),
-      par('Telefone', escapar(e.motorista_telefone || '—')),
-      par('CNH', escapar(e.motorista_cnh_mascarada || '—')),
+      ['fornecedor', 'admin'].includes(perfil) ? par('Telefone', escapar(e.motorista_telefone || '—')) : '',
+      perfil === 'admin' ? par('CNH', escapar(e.motorista_cnh_mascarada || '—')) : '',
       '<hr>',
       par('Veículo', escapar(e.veiculo_placa)),
       par('Tipo', formato.veiculo(e.veiculo_tipo)),
@@ -353,7 +356,7 @@
       document.getElementById('reportar').addEventListener('click', reportarOcorrencia);
       document.getElementById('atualizar-posicao').addEventListener('click', atualizarAgora);
       carregar();
-      setInterval(carregar, 5000);
+      Portal.repetir(carregar);  // 5 s, ou 2 s com o relógio acelerado
     },
   });
 })();

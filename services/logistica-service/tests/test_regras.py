@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from logistica.regras import CotacaoCandidata, escolher_automaticamente
+from logistica.regras import CotacaoCandidata, escolher_automaticamente, ocultar_dados_do_motorista
 
 
 def cotacao(id_, transportadora, preco, prazo):
@@ -39,3 +39,16 @@ def test_empate_total_e_decidido_pelo_id_da_transportadora():
 def test_sem_cotacao_nao_ha_o_que_escolher():
     with pytest.raises(ValueError):
         escolher_automaticamente([])
+
+
+@pytest.mark.parametrize("perfil, telefone, cnh", [
+    ("admin", True, True), ("fornecedor", True, False), ("comprador", False, False), ("transportadora", False, False),
+])
+def test_dados_do_motorista_dependem_do_perfil(perfil, telefone, cnh):
+    entrega = {"motorista_nome": "Ana", "motorista_telefone": "(41) 90000-0001", "motorista_cnh_mascarada": "*******0001"}
+    visivel = ocultar_dados_do_motorista(entrega, perfil)
+    assert visivel["motorista_nome"] == "Ana"  # o nome todos veem
+    assert (visivel["motorista_telefone"] is not None) is telefone
+    assert (visivel["motorista_cnh_mascarada"] is not None) is cnh
+    assert entrega["motorista_telefone"] == "(41) 90000-0001"  # o original não muda
+

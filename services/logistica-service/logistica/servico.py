@@ -193,6 +193,8 @@ class Logistica:
             "distanciaKm": distancia,
             "dataColetaPrevista": coleta.isoformat(),
             "prazoDecisaoEm": iso(prazo_decisao),
+            # Até quando o comprador quer a carga (opcional): a transportadora vê na tela de cotação.
+            "dataEntregaDesejada": _data_iso(pedido.get("dataEntregaDesejada")),
             "rodada": rodada,
             "status": "ABERTA",
         }, correlation_id)
@@ -587,6 +589,13 @@ class Logistica:
         log.warning("Frete indisponível: prazo venceu sem cotação", extra={"dados": {
             "solicitacaoFreteId": linha["id"], "pedidoId": linha["pedido_id"], "rodada": linha["rodada"]}})
         await self._reabrir(conn, linha)
+
+
+def _data_iso(valor) -> str | None:
+    """Data como texto AAAA-MM-DD; aceita a data do banco ou o texto do evento."""
+    if valor is None or valor == "":
+        return None
+    return valor.isoformat() if hasattr(valor, "isoformat") else str(valor)[:10]
 
 
 def pedido_da_solicitacao(s: dict) -> dict:

@@ -204,7 +204,7 @@
     aoEntrar() {
       if (!solicitacaoId) { location.replace('solicitacoes.html'); return; }
       carregar();
-      setInterval(carregar, 5000);
+      Portal.repetir(carregar);
     },
   });
 })();
