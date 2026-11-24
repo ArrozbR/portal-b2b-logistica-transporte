@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | Identificador | ESP-LOG-001 |
-| Versão | 1.5 |
+| Versão | 1.6 |
 | Status | Em revisão (aguarda o gate G1 do grupo de Teste e Qualidade) |
 | Serviço / Bounded context | `logistica-service`: solicitação de frete, escolha do frete, entrega e rastreio. Grupo 5 (Logística e Transporte) do Portal B2B Distribuído |
 | Autores (PO / Dev / QA) | Grupo 5 — Logística e Transporte (PO e Dev). Revisão de QA: grupo de Teste e Qualidade |
@@ -233,6 +233,7 @@ Interno: `ultima_sequencia` (inteiro, inicial 0): maior `sequencia` de rastreio 
 |---|---|---|---|
 | id | string | Sim | UUID4 gerado pelo serviço. |
 | autor_papel | enum | Sim | `"comprador"` ou `"fornecedor"`: o perfil de quem reportou. |
+| tipo | enum | Sim | `ATRASO`, `AVARIA` (avaria na carga), `DESVIO_ROTA` ou `OUTRO`. Opcional na API-15; sem ele, `OUTRO` (RN-33). |
 | descricao | string | Sim | Sem os espaços das pontas; 5 a 500 caracteres depois de tirá-los (RN-33). |
 | ocorrida_em | instante | Sim | Hora do módulo ao reportar. |
 
@@ -247,7 +248,7 @@ Internos (não aparecem na API): `entrega_id`, `pedido_id`, `autor_id` (`sub` de
 | titulo | string | Sim | Literal da RN-32 para o tipo. |
 | mensagem | string | Sim | Texto em português com o `pedido_id`; pode mudar (só o `titulo` e o `tipo` são literais). Datas na mensagem no horário de Brasília (`dd/mm/aaaa hh:mm`), valores como `R$ 7.113,30`. |
 | pedido_id, solicitacao_id | string | Sim | Do pedido que gerou a notificação. |
-| lida | booleano | Sim | Inicial `false`; muda pela API-18. |
+| lida | booleano | Sim | Inicial `false`; muda pela API-18 (uma) ou pela API-19 (todas do usuário). |
 | criada_em | instante | Sim | Hora do módulo na mudança que gerou a notificação. |
 
 Internos: `empresa_id` e `papel` (`"comprador"` ou `"fornecedor"`), o destinatário; `criado_em_real` (hora real, desempate da ordem).
@@ -356,6 +357,7 @@ Listagens paginadas: `?page=` (≥ 1, padrão 1) e `?size=` (1 a 100, padrão 10
 | API-16 | GET | `/api/v1/logistica/entregas/{entrega_id}/documentos/{tipo}` | comprador, fornecedor, admin | 200 (`application/pdf`) | 401/503 → 403 → 422 `DADOS_INVALIDOS` → 404 `ENTREGA_NAO_ENCONTRADA` → 409 `DOCUMENTO_INDISPONIVEL` |
 | API-17 | GET | `/api/v1/logistica/notificacoes` | comprador, fornecedor | 200 | 401/503 → 403 → 422 `DADOS_INVALIDOS` |
 | API-18 | PATCH | `/api/v1/logistica/notificacoes/{notificacao_id}` | comprador, fornecedor | 200 | 422 (JSON ilegível) → 401/503 → 403 → 422 `DADOS_INVALIDOS` → 404 `NOTIFICACAO_NAO_ENCONTRADA` |
+| API-19 | POST | `/api/v1/logistica/notificacoes/marcar-todas-lidas` | comprador, fornecedor | 200 | 401/503 → 403 |
 
 #### API-01 — Saúde
 
@@ -665,7 +667,7 @@ Todas as ocorrências da entrega (RN-33), por `ocorrida_em` crescente. Não é p
 ```json
 {
   "items": [
-    {"id": "4f0430e0-6382-4f0c-8183-9ea5a0c942ef", "autor_papel": "comprador",
+    {"id": "4f0430e0-6382-4f0c-8183-9ea5a0c942ef", "autor_papel": "comprador", "tipo": "AVARIA",
      "descricao": "Lona da carreta rasgada na foto da coleta.", "ocorrida_em": "2026-11-10T12:30:00.000Z"}
   ]
 }
@@ -674,7 +676,7 @@ Sem ocorrências: `{"items": []}`.
 
 #### API-15 — Reportar ocorrência
 
-Requisição: `{"descricao": "  Lona da carreta rasgada na foto da coleta.  "}`. `descricao`: texto obrigatório; os espaços das pontas são retirados e o restante deve ter de 5 a 500 caracteres (RN-33).
+Requisição: `{"tipo": "AVARIA", "descricao": "  Lona da carreta rasgada na foto da coleta.  "}`. `descricao`: texto obrigatório; os espaços das pontas são retirados e o restante deve ter de 5 a 500 caracteres (RN-33). `tipo`: opcional, um de `ATRASO`, `AVARIA`, `DESVIO_ROTA` e `OUTRO` (padrão `OUTRO`); os nomes da tela ("Avaria na carga") não valem.
 
 Resposta 201: a ocorrência gravada, como um item da API-14 (com `descricao` sem os espaços das pontas). Efeitos na mesma transação: `com_ocorrencia` da entrega vira `true` e a outra parte recebe a notificação `OCORRENCIA` (RN-32).
 
@@ -718,6 +720,10 @@ Parâmetros: `lida` (opcional, booleano: `true` só lidas, `false` só não lida
 #### API-18 — Marcar notificação
 
 Requisição: `{"lida": true}` ou `{"lida": false}`. `lida` é booleano e opcional (padrão `true`; o corpo `{}` marca como lida). Resposta 200: a notificação, como um item da API-17, com o novo `lida`. Marcar de novo com o mesmo valor também responde 200. Notificação de outra empresa ou de outro perfil → 404 `NOTIFICACAO_NAO_ENCONTRADA`.
+
+#### API-19 — Marcar todas como lidas
+
+Sem corpo (um corpo enviado é ignorado). Marca como lidas, numa única gravação, todas as notificações não lidas da empresa e do perfil do usuário (RN-32); as de outras empresas e de outros perfis não mudam. Resposta 200: `{"marcadas": 2, "naoLidas": 0}`, em que `marcadas` é quantas estavam não lidas (0 se não havia nenhuma; chamar de novo responde 200 com 0). É o botão "Marcar todas como lidas" do sino.
 
 ### 7.3 Eventos consumidos
 
@@ -1583,9 +1589,9 @@ Cenário: Falha que não é do contrato tem 3 retentativas
 ### RF-17 — Notificações no portal
 
 - **Prioridade:** Should
-- **Enunciado (EARS):** Quando uma mudança da RN-32 for gravada, o serviço deve gravar, na mesma transação, uma notificação para cada destinatário da RN-32. Quando um comprador ou fornecedor consultar a API-17 ou enviar a API-18, o serviço deve devolver ou alterar só as notificações da sua empresa e do seu perfil.
+- **Enunciado (EARS):** Quando uma mudança da RN-32 for gravada, o serviço deve gravar, na mesma transação, uma notificação para cada destinatário da RN-32. Quando um comprador ou fornecedor consultar a API-17 ou enviar a API-18 ou a API-19, o serviço deve devolver ou alterar só as notificações da sua empresa e do seu perfil.
 - **Regras aplicáveis:** RN-28, RN-32
-- **Interface:** API-17, API-18
+- **Interface:** API-17, API-18, API-19
 
 ```gherkin
 # CA-74
@@ -1639,6 +1645,18 @@ Cenário: Marcar como lida ou não lida
   Então a resposta é 422 com codigo "DADOS_INVALIDOS" e erros[0].campo "body.lida"
   Quando U-ADM envia a API-18 de N
   Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
+
+# CA-89
+Cenário: Marcar todas como lidas
+  Dado U-FORN com as 2 notificações do CA-74, ambas não lidas, e U-COMP com 2 não lidas
+  Quando U-FORN envia a API-19
+  Então a resposta é 200 com {"marcadas": 2, "naoLidas": 0}
+  E a API-17 de U-FORN com lida=false tem total 0, e com lida=true tem total 2
+  E a API-17 de U-COMP continua com naoLidas 2
+  Quando U-FORN envia a API-19 de novo
+  Então a resposta é 200 com {"marcadas": 0, "naoLidas": 0}
+  Quando U-ADM ou U-TRANSP envia a API-19
+  Então a resposta é 403 com codigo "PERFIL_NAO_PERMITIDO"
 ```
 
 ### RF-18 — Ocorrências reportadas pelo usuário
@@ -1673,6 +1691,17 @@ Cenário: Ocorrência recusada
   Quando U-FORN envia a API-15 de E-1 com {"descricao": "Depois do cancelamento"}
   Então a resposta é 409 com codigo "ENTREGA_ENCERRADA" e nenhuma notificação é gravada
   E a API-14 de E-1 continua respondendo 200 com as ocorrências anteriores
+
+# CA-90
+Cenário: Tipo da ocorrência
+  Dado E-1 com status "EM_TRANSITO"
+  Quando U-COMP envia a API-15 de E-1 com {"tipo": "AVARIA", "descricao": "Lona da carreta rasgada."}
+  Então a resposta é 201 com tipo "AVARIA", e a API-14 e a API-10 têm o item com o mesmo tipo
+  E a notificação "OCORRENCIA" de U-FORN tem a mensagem começando com "O comprador reportou uma ocorrência (avaria na carga) na entrega do pedido PED-1001"
+  Quando U-COMP envia a API-15 de E-1 só com {"descricao": "Motorista parado no posto."}
+  Então a resposta é 201 com tipo "OUTRO", e a mensagem da notificação não tem o tipo entre parênteses
+  Quando U-COMP envia a API-15 de E-1 com tipo "Avaria na carga", "avaria" ou 1
+  Então a resposta é 422 com codigo "DADOS_INVALIDOS" e erros[0].campo "body.tipo", e a API-14 não muda
 ```
 
 ### RF-19 — Documentos demonstrativos em PDF
@@ -1818,8 +1847,8 @@ Cenário: Nenhuma transportadora com frota, abre a rodada seguinte
 | RN-29 | A API-08 omite entregas `RECUSADA`, a menos que `incluir_recusadas=true`; com `status` informado, vale só o filtro de status. A API-11 devolve a entrega da maior `rodada` do pedido que tenha entrega e, nela, a de maior `tentativa`, de qualquer status. | CA-51. |
 | RN-30 | Consumo: o `eventId` é gravado em `processed_events` na mesma transação do efeito; um `eventId` já gravado é ignorado. JSON ilegível, envelope incompleto (inclusive `eventId` que não seja texto de 1 a 64 caracteres e `correlationId` presente que não seja texto de até 128), payload fora do contrato ou referência inexistente (`EventoInvalido`) → DLT direto (`failedAtAttempt` 1). Outra falha → novas tentativas depois de 1 s, 2 s e 4 s; depois → DLT (`failedAtAttempt` 4). Mensagem com `eventId` que foi para a DLT por payload inválido fica marcada: uma cópia dela é ignorada. O offset só avança depois de processar ou de gravar na DLT; se o banco estiver fora, o consumidor espera e não perde a mensagem. | CA-61, CA-62. |
 | RN-31 | Requisição com erro (qualquer 4xx) não altera estado, não grava evento e não memoriza a `Idempotency-Key`. | CA-33. |
-| RN-32 | Notificações: gravadas na mesma transação da mudança, com `criada_em` = hora do módulo dessa mudança e `lida` false. Destinatário = (empresa, perfil): `comprador_id` com perfil comprador e `fornecedor_id` com perfil fornecedor. Transportadora e admin não recebem. Tipos, `titulo` (literal) e quem recebe: `COTACOES_DISPONIVEIS` "Cotações de frete disponíveis" (primeira cotação válida muda a solicitação para `COTADA`, RN-09) → comprador. `SEM_COTACAO` "Nenhuma transportadora cotou ainda" (RN-10) → os dois. `FRETE_ESCOLHIDO` "Frete escolhido" (RN-17 e RN-18) → fornecedor; também o comprador quando não foi ele quem escolheu (rotina de prazos ou admin). `FRETE_INDISPONIVEL` "Frete indisponível" (RN-11, RN-24) → os dois. `TRANSPORTADORA_TROCADA` "Transportadora trocada" (RN-23) → os dois. `MOTORISTA_ESCALADO` "Motorista escalado" (`VIAGEM_ALOCADA`) → os dois. `COLETA_REALIZADA` "Carga coletada" → os dois. `PREVISAO_ATUALIZADA` "Previsão de chegada alterada" → comprador. `ENTREGA_REALIZADA` "Entrega realizada" → os dois. `OCORRENCIA` "Ocorrência na entrega" (API-15) → a outra parte (quem reportou não recebe). Cancelamento (RN-20), rastreio `POSICAO`, `PARADA` e `OCORRENCIA`, e ajuste do relógio não geram notificação. Uma mudança que não acontece (mensagem ignorada, gravação condicional que perde) não gera notificação. | CA-74 a CA-77. |
-| RN-33 | Ocorrência (API-15): só comprador ou fornecedor, numa entrega visível (RN-19) com status diferente de `CANCELADA` e `RECUSADA` (entrega `ENTREGUE` aceita: avaria descoberta na chegada). `descricao`: os espaços das pontas são retirados antes de contar; de 5 a 500 caracteres depois disso. Grava `autor_papel` = perfil e `ocorrida_em` = hora do módulo; marca `com_ocorrencia` true; notifica a outra parte (RN-32). A API-14 e o campo `ocorrencias` da API-10 listam todas, por `ocorrida_em` crescente, para qualquer status da entrega. | "  abc  " → 422; entrega `CANCELADA` → 409. CA-78, CA-79. |
+| RN-32 | Notificações: gravadas na mesma transação da mudança, com `criada_em` = hora do módulo dessa mudança e `lida` false. Destinatário = (empresa, perfil): `comprador_id` com perfil comprador e `fornecedor_id` com perfil fornecedor. Transportadora e admin não recebem. Tipos, `titulo` (literal) e quem recebe: `COTACOES_DISPONIVEIS` "Cotações de frete disponíveis" (primeira cotação válida muda a solicitação para `COTADA`, RN-09) → comprador. `SEM_COTACAO` "Nenhuma transportadora cotou ainda" (RN-10) → os dois. `FRETE_ESCOLHIDO` "Frete escolhido" (RN-17 e RN-18) → fornecedor; também o comprador quando não foi ele quem escolheu (rotina de prazos ou admin). `FRETE_INDISPONIVEL` "Frete indisponível" (RN-11, RN-24) → os dois. `TRANSPORTADORA_TROCADA` "Transportadora trocada" (RN-23) → os dois. `MOTORISTA_ESCALADO` "Motorista escalado" (`VIAGEM_ALOCADA`) → os dois. `COLETA_REALIZADA` "Carga coletada" → os dois. `PREVISAO_ATUALIZADA` "Previsão de chegada alterada" → comprador. `ENTREGA_REALIZADA` "Entrega realizada" → os dois. `OCORRENCIA` "Ocorrência na entrega" (API-15) → a outra parte (quem reportou não recebe). Cancelamento (RN-20), rastreio `POSICAO`, `PARADA` e `OCORRENCIA`, e ajuste do relógio não geram notificação. Uma mudança que não acontece (mensagem ignorada, gravação condicional que perde) não gera notificação. A API-18 marca uma notificação e a API-19, todas as não lidas do destinatário. | CA-74 a CA-77, CA-89. |
+| RN-33 | Ocorrência (API-15): só comprador ou fornecedor, numa entrega visível (RN-19) com status diferente de `CANCELADA` e `RECUSADA` (entrega `ENTREGUE` aceita: avaria descoberta na chegada). `descricao`: os espaços das pontas são retirados antes de contar; de 5 a 500 caracteres depois disso. `tipo`: `ATRASO`, `AVARIA`, `DESVIO_ROTA` ou `OUTRO` (padrão `OUTRO`, que vale também para as ocorrências gravadas antes do campo existir). Grava `autor_papel` = perfil e `ocorrida_em` = hora do módulo; marca `com_ocorrencia` true; notifica a outra parte (RN-32), com o tipo entre parênteses na mensagem, em minúsculas ("(avaria na carga)"), menos para `OUTRO`. A API-14 e o campo `ocorrencias` da API-10 listam todas, por `ocorrida_em` crescente, para qualquer status da entrega. | "  abc  " → 422; entrega `CANCELADA` → 409. CA-78, CA-79, CA-90. |
 | RN-35 | Pedido de leilão (D26): o pedido nasce na abertura do leilão, e o comprador só é definido no fechamento (professor, 12/11/2026). Um `pedido_criado` sem `compradorId` ou sem `destino` (nulo, ausente ou vazio) é guardado em `pedido_aguardando`, sem solicitação. Um `pedido_atualizado` que não seja `CANCELADO` e traga `compradorId` ou `destino` é um fechamento, seja qual for o status (Q-13); dele valem `compradorId`, `destino`, `quantidade`, `pesoKg`, `valorTotal` e `dataEntregaDesejada` não nulos. Pedido e fechamento são guardados em separado e juntados com o fechamento por cima; um valor nulo nunca apaga outro. Quando há pedido e o resultado tem `compradorId` e `destino`, a solicitação abre (RF-01), com o `correlationId` do `pedido_criado`, e a linha é apagada. Fechamento de pedido que já tem solicitação, ou que foi cancelado, é ignorado. Cancelamento apaga a linha (RN-06 continua valendo). Cidade fora da tabela no fechamento → DLT na hora (RN-01). | P-L + F-L → solicitação com o comprador e o valor de F-L. CA-83 a CA-86. |
 | RN-36 | Nova rodada (D27): o frete indisponível não encerra o pedido, porque o grupo de Pedidos não o cancela (a venda já foi concluída e o estoque já teve baixa; ESP-PED-001, RN-22 e D-05). Na mesma transação do `frete_indisponivel` (RN-11 ou RN-24), o serviço abre outra solicitação para o mesmo pedido, com `rodada` + 1 e a mesma carga (produto, valor, comprador, fornecedor, tipo, peso, origem, destino e `dataEntregaDesejada`). Tudo o mais recomeça como no RF-01: `id` novo, `aberta_em` = agora, coleta, prazo de 12 h, rodada de 10 s, status `ABERTA` e `solicitacao_frete_criada` com o `correlationId` do pedido e `rodada`. As entregas da nova rodada começam na `tentativa` 1. Não há limite de rodadas: sem cotação, cada rodada dura no mínimo os 10 s reais e as 12 h do módulo. O cancelamento (RN-20) age sobre a rodada mais recente. As notificações `SEM_COTACAO`, `FRETE_INDISPONIVEL` dizem que uma nova cotação foi aberta, e não que o pedido será cancelado. | S-2 sem cotação: no fim do prazo, S-2 fica `INDISPONIVEL` e a rodada 2 abre `ABERTA`. CA-87, CA-88. |
 | RN-34 | Documentos (API-16): PDF gerado na hora com os dados atuais da entrega (API-09), em qualquer status, inclusive `CANCELADA` e `ENTREGUE`. Todo documento tem, no cabeçalho, "Portal B2B - <título>", "Nº <número>" e "Emitido em <hora do módulo, horário de Brasília> (hora do módulo)", e a marca d'água "DOCUMENTO DEMONSTRATIVO - SEM VALOR FISCAL". Títulos: `cte` "CT-e - Conhecimento de Transporte Eletrônico"; `romaneio` "Romaneio de carga"; `nota-fiscal` "Nota fiscal de venda"; `comprovante-coleta` "Comprovante de coleta". Número = `int(sha1("<tipo>:<id da entrega>") em hexadecimal, 8 primeiros dígitos) mod 1000000`, com 6 dígitos (zeros à esquerda): o mesmo documento tem sempre o mesmo número. Campos ainda vazios aparecem como "a definir" (placa, motorista) ou "-". `comprovante-coleta` só existe com `coletada_em` preenchido; antes → 409 `DOCUMENTO_INDISPONIVEL`. | E-1: cte 154995, romaneio 154205, nota-fiscal 448765, comprovante-coleta 600897. CA-80, CA-81. |
@@ -1992,8 +2021,8 @@ O pedido de teste é criado pelo `pedidos-falso` (`POST /api/v1/pedidos-falso/pe
 | RF-14 | RN-27 | API-12, API-13, `relogio_ajustado` | CA-56 a CA-59 |
 | RF-15 | — | API-01 a API-03 | CA-60. Sem CA de erro: rotas públicas sem entrada |
 | RF-16 | RN-30 | Todos os tópicos consumidos, `logistica.dlt` | CA-61, CA-62 (e CA-02, CA-04, CA-05, CA-11, CA-43, CA-50) |
-| RF-17 | RN-28, RN-32 | API-17, API-18 (e as mudanças da RN-32) | CA-74 a CA-77 |
-| RF-18 | RN-19, RN-32, RN-33 | API-14, API-15, API-10 | CA-78, CA-79 |
+| RF-17 | RN-28, RN-32 | API-17, API-18, API-19 (e as mudanças da RN-32) | CA-74 a CA-77, CA-89 |
+| RF-18 | RN-19, RN-32, RN-33 | API-14, API-15, API-10 | CA-78, CA-79, CA-90 |
 | RF-19 | RN-19, RN-34 | API-16 | CA-80, CA-81 |
 | RNF-01 a RNF-10 | — | Todas | CA-63 a CA-72 |
 | RNF-11 | — | API-04, API-06, API-11 | CA-82 |
@@ -2057,6 +2086,7 @@ Q-03, Q-04, Q-05 e Q-11 têm decisão tomada e implementada; o que falta é a co
 
 | Versão | Data | Autor | Mudança |
 |---|---|---|---|
+| 1.6 | 2026-11-23 | Grupo 5 | Botão "Marcar todas como lidas" no sino: rota nova API-19 (RF-17, RN-32, CA-89). Tipo da ocorrência (`ATRASO`, `AVARIA`, `DESVIO_ROTA`, `OUTRO`), pedido pela versão publicada do mockup do grupo de UX: opcional na API-15 (padrão `OUTRO`), devolvido na API-14 e na API-10 e citado na notificação (§6.1, RN-33, CA-90; migração 008). CA-01 a CA-88 sem mudança. |
 | 1.5 | 2026-11-23 | Grupo 5 | Correções da caça aos bugs (explicação 13). RN-30: `eventId` fora de 1 a 64 caracteres ou `correlationId` acima de 128 vão direto à DLT (antes, travavam o consumidor); `correlationId` de até 128 caracteres é aceito, como no grupo de Pedidos (antes, o pedido ia para a DLT). RN-15: a solicitação entra na chave de idempotência (antes, a mesma chave em outra solicitação devolvia a resposta da primeira) e a chave é um resumo de tamanho fixo (antes, com id de usuário UUID e chave de 100 caracteres, a escolha respondia 500). RN-32: o comprador é avisado também quando o admin escolhe por ele. |
 | 1.4 | 2026-11-23 | Grupo 5 | Resposta ao grupo de Pedidos (issue #1, ESP-PED-001 v2.1). Frete indisponível não cancela o pedido: abre uma nova rodada para o mesmo pedido (D27; RF-21, RN-36, CA-87, CA-88, Q-14), com o campo `rodada` na solicitação e no `solicitacao_frete_criada` e a `tentativa` única por solicitação. Fechamento do leilão definido por eles (`VENDA_CONCLUIDA` e `AGUARDANDO_FRETE`, Q-13). Tabela de cidades de 35 para 132, com as 27 capitais (RN-01, Apêndice A); a parada do cenário da ESP-TRP-001 continua em Jataí. RN-05, RN-11, RN-24, RN-29 e §6.2 ajustados. |
 | 1.3 | 2026-11-14 | Grupo 5 | Pedido de leilão (D26): segundo o professor (12/11/2026), o pedido nasce na abertura do leilão e o comprador só é definido no fechamento. `compradorId` e `destino` passam a opcionais no `pedido_criado`; a solicitação abre no `pedido_atualizado` de fechamento (RF-20, RN-35, CA-83 a CA-86, Q-13, tabela `pedido_aguardando`). CA-05 trocou "sem o campo destino" (agora válido) por destino sem `uf`, sem `origem` e `compradorId` vazio. RF-01 e §7.3 ajustados. |

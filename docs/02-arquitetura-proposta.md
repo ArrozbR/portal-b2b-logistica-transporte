@@ -383,11 +383,12 @@ Todas as rotas exigem JWT: o token RS256 do grupo de Autenticação, validado pe
 | `GET /api/v1/logistica/entregas/{id}` | idem | Resumo: status, progresso, previsão, transportadora, motorista, veículo, carga |
 | `GET /api/v1/logistica/entregas/{id}/rastreio` | idem | Rota, posição e linha do tempo. É o que a tela consulta a cada 5 s |
 | `GET /api/v1/logistica/pedidos/{pedidoId}/entrega` | idem | Entrega atual do pedido |
-| `POST /api/v1/logistica/entregas/{id}/ocorrencias` | comprador, fornecedor | "Reportar ocorrência"; avisa a outra parte do pedido |
+| `POST /api/v1/logistica/entregas/{id}/ocorrencias` | comprador, fornecedor | "Reportar ocorrência" com tipo (atraso, avaria, desvio de rota, outro) e descrição; avisa a outra parte do pedido |
 | `GET /api/v1/logistica/entregas/{id}/ocorrencias` | comprador, fornecedor (a sua), admin | Ocorrências da entrega (também vêm no rastreio) |
 | `GET /api/v1/logistica/entregas/{id}/documentos/{tipo}` | comprador, fornecedor (a sua), admin | PDF demonstrativo: `cte`, `romaneio`, `nota-fiscal`, `comprovante-coleta` |
 | `GET /api/v1/logistica/notificacoes` | todos (as suas) | Notificações, com filtro `lida` |
 | `PATCH /api/v1/logistica/notificacoes/{id}` | todos (as suas) | Marca como lida |
+| `POST /api/v1/logistica/notificacoes/marcar-todas-lidas` | comprador, fornecedor (as suas) | Marca todas como lidas (botão do sino) |
 | `GET /api/v1/logistica/relogio` | todos | Hora do módulo e fator atual |
 | `POST /api/v1/logistica/admin/relogio` | admin | Altera o fator (de 0,01 a 100.000, até 2 casas decimais) ou avança o relógio |
 
