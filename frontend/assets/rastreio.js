@@ -60,19 +60,35 @@
   // ------------------------------------------------------------------ faixa de resumo
   const RAIO_ANEL = 27;
   const VOLTA_ANEL = 2 * Math.PI * RAIO_ANEL;
+  // 100% só com a entrega confirmada. Antes disso, a porcentagem é arredondada para baixo e fica
+  // em no máximo 99%: com o arredondamento comum, o caminhão a 99,5% do caminho já mostrava 100%.
+  function porcentagemDoAnel(progresso) {
+    if (leitura.status === 'ENTREGUE') return 1;
+    return Math.min(0.99, Math.floor(progresso * 100) / 100);
+  }
+
   function anel(progresso) {
-    return `<div class="anel" id="anel" role="img" aria-label="Progresso ${formato.porcentagem(progresso)}">
+    const p = porcentagemDoAnel(progresso);
+    return `<div class="anel" id="anel" role="img" aria-label="Progresso ${formato.porcentagem(p)}">
       <svg viewBox="0 0 64 64"><circle class="trilho" cx="32" cy="32" r="${RAIO_ANEL}"/>
-      <circle class="valor" cx="32" cy="32" r="${RAIO_ANEL}" stroke-dasharray="${VOLTA_ANEL}" stroke-dashoffset="${VOLTA_ANEL * (1 - progresso)}"/></svg>
-      <span>${formato.porcentagem(progresso)}</span></div>`;
+      <circle class="valor" cx="32" cy="32" r="${RAIO_ANEL}" stroke-dasharray="${VOLTA_ANEL}" stroke-dashoffset="${VOLTA_ANEL * (1 - p)}"/></svg>
+      <span>${formato.porcentagem(p)}</span></div>`;
   }
 
   function atualizarAnel(progresso) {
     const elemento = document.getElementById('anel');
     if (!elemento) return;
-    elemento.querySelector('.valor').setAttribute('stroke-dashoffset', VOLTA_ANEL * (1 - progresso));
-    elemento.querySelector('span').textContent = formato.porcentagem(progresso);
-    elemento.setAttribute('aria-label', `Progresso ${formato.porcentagem(progresso)}`);
+    const p = porcentagemDoAnel(progresso);
+    elemento.querySelector('.valor').setAttribute('stroke-dashoffset', VOLTA_ANEL * (1 - p));
+    elemento.querySelector('span').textContent = formato.porcentagem(p);
+    elemento.setAttribute('aria-label', `Progresso ${formato.porcentagem(p)}`);
+  }
+
+  // "Em 2 dias", "Em 3 h"... Passada a previsão sem a entrega confirmada (o serviço confirma no
+  // próximo passo da viagem), mostra "Chegando ao destino" em vez de "Há 22 min".
+  function previsaoRelativa(chegada, agoraIso) {
+    if (leitura.status === 'EM_TRANSITO' && new Date(chegada) <= new Date(agoraIso)) return 'Chegando ao destino';
+    return formato.relativo(chegada, agoraIso);
   }
 
   function etapas(eventos) {
@@ -84,7 +100,7 @@
     const s = STATUS_ENTREGA[e.status] || { texto: e.status };
     const agora = Portal.relogio.agora();
     let previsao = `<strong>${formato.curta(e.previsao_chegada)}</strong><div class="sub" id="previsao-relativa">${
-      formato.relativo(e.previsao_chegada, agora ? agora.toISOString() : r.horaDoModulo)}</div>`;
+      previsaoRelativa(e.previsao_chegada, agora ? agora.toISOString() : r.horaDoModulo)}</div>`;
     if (e.status === 'ENTREGUE') {
       previsao = `<strong>${formato.curta(e.entregue_em)}</strong><div class="sub">${e.no_prazo
         ? 'Entregue no prazo' : `Entregue com ${Math.round(e.atraso_horas)} h de atraso`}</div>`;
@@ -349,7 +365,7 @@
     atualizarAnel(leitura.mostrado);
     const relativa = document.getElementById('previsao-relativa');
     if (relativa && leitura.chegada && leitura.status !== 'ENTREGUE') {
-      relativa.textContent = formato.relativo(leitura.chegada, agora.toISOString());
+      relativa.textContent = previsaoRelativa(leitura.chegada, agora.toISOString());
     }
   }
 

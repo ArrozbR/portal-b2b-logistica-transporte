@@ -34,6 +34,8 @@ A espera entre um clique e o próximo caiu de 15 s para **5 s**. O limite de uma
 
 **O serviço continua mandando:** cada posição nova que chega corrige a da tela. A tela nunca chega ao destino sozinha (para em 99,5%): quem confirma a entrega é o serviço.
 
+**100% só na chegada:** a porcentagem do anel (e da lista de entregas) é arredondada para baixo e fica em no máximo 99% até a entrega ser confirmada. Antes, com o arredondamento comum, o caminhão a 99,5% do caminho já mostrava 100%. Se a previsão de chegada passa e a entrega ainda não foi confirmada (o serviço confirma no passo seguinte da viagem), a tela mostra "Chegando ao destino" em vez de "Há 22 min".
+
 **Por que o caminhão nunca volta:** quando o atraso aparece (aos 60% do caminho), a previsão de chegada aumenta e o caminhão passa a andar mais devagar. A tela, que ainda usava a previsão antiga, pode ter andado um pouco à frente do serviço. Nesse caso o caminhão espera o serviço alcançá-lo, em vez de recuar no mapa.
 
 Conferido no navegador: em 360×, o caminhão anda a cada segundo e a legenda acompanha o relógio. Em 3600×, o anel subiu de 55% para 64% em 12 s, sem voltar. Depois de clicar no botão, a contagem foi de 4 s até 1 s e o botão voltou.
@@ -44,7 +46,8 @@ Conferido no navegador: em 360×, o caminhão anda a cada segundo e a legenda ac
 |---|---|
 | `frontend/assets/portal.js` | Logo; relógio que nunca volta; evento `portal:segundo` a cada segundo |
 | `frontend/assets/portal.css` | Estilo do logo (`.logo`, `.logo-anel`); círculo da linha do tempo sem o espaço do logo |
-| `frontend/assets/rastreio.js` | Caminhão, anel e previsão a cada segundo; última posição na linha do tempo; espera de 5 s no botão |
+| `frontend/assets/rastreio.js` | Caminhão, anel e previsão a cada segundo; 100% só na chegada; última posição na linha do tempo; espera de 5 s no botão |
+| `frontend/assets/entregas.js` | 100% só na chegada, também na lista |
 | `frontend/*.html` | Ícone da aba com o anel |
 | `docs/06-pauta-de-decisoes.md` | D10: o caminhão anda na tela entre um passo e outro |
 

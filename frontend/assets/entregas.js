@@ -18,15 +18,17 @@
         ? '<span class="tracinho">—</span>'
         : `<span class="suave">Previsão</span><br>${formato.curta(e.previsao_chegada)}`;
     const encerrada = e.status === 'CANCELADA' || e.status === 'RECUSADA';
+    // 100% só com a entrega confirmada; antes, arredonda para baixo e fica em no máximo 99%.
+    const pct = e.status === 'ENTREGUE' ? 100 : Math.min(99, Math.floor(Number(e.progresso) * 100));
     return `<tr data-id="${escapar(e.id)}" tabindex="0">
       <td><strong>${escapar(e.pedido_id)}</strong>${e.tentativa > 1 ? `<br><span class="suave">tentativa ${e.tentativa}</span>` : ''}</td>
       <td><span class="rota">${rota}</span><br><span class="suave">${escapar(e.produto_nome)} · ${formato.toneladas(e.peso_kg)}</span></td>
       <td class="opcional">${escapar(e.transportadora_nome || e.transportadora_id)}<br><span class="suave">${escapar(e.veiculo_placa || '')}</span></td>
       <td>${pilulaStatus(e.status)}</td>
       <td class="opcional">${encerrada ? '<span class="tracinho">—</span>' : `<div class="barra" role="progressbar"
-          aria-valuenow="${Math.round(e.progresso * 100)}" aria-valuemin="0" aria-valuemax="100" aria-label="Progresso">
-          <span style="width:${Math.round(e.progresso * 100)}%"></span></div>
-        <span class="suave">${formato.porcentagem(e.progresso)}</span>`}</td>
+          aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Progresso">
+          <span style="width:${pct}%"></span></div>
+        <span class="suave">${pct}%</span>`}</td>
       <td>${quando}</td>
       <td class="seta"><span class="link-acao">${encerrada ? 'Ver ›' : 'Acompanhar ›'}</span></td>
     </tr>`;
