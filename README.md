@@ -11,6 +11,7 @@ Microsserviços de **Logística** e **Transportadoras** do Portal B2B Distribuí
 - Gabriel Rodrigues
 - Heitor Deodato
 - Jefferson Felex
+- Adriano Faleiro Gregório
 
 ## O que o grupo entrega
 
