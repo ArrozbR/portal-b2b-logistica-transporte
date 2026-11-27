@@ -178,13 +178,16 @@ Garantias: envelope do kit; `correlationId` do pedido repassado do começo ao fi
 
 **Desenvolvimento:** `docker compose up -d --build` sobe Postgres, Redpanda, Console, as duas cópias de cada serviço, o portal (Nginx), o "Pedidos falso" e o "Usuários falso". Portas escolhidas para não conflitar com o kit. Scripts, migrações e telas vão **dentro das imagens**, porque montar pastas não funciona quando o repositório está num drive virtual (ADR-024).
 
-**Para levar ao kit de infraestrutura**, falta:
+**Integração na AWS (desde 27/11/2026):** a Infra publicou um ambiente na AWS (`docs/GUIA-DEPLOY-GRUPOS.md` do kit, commit `4720748`). Cada `git push` na `main` faz o build da imagem pelo GitHub Actions, envia ao ECR e sobe o contêiner nas máquinas de aplicação (hoje só a `app1`; a `app2` fica desligada para economizar créditos). O ambiente desliga das 00:00 às 10:00. Este repositório tem dois workflows, um por serviço (`.github/workflows/deploy-logistica.yml` e `deploy-transportadoras.yml`), copiados do modelo da Infra, com o build a partir da raiz (`-f services/<serviço>/Dockerfile`, por causa do pacote `comum`) e deploy só quando muda o código do serviço ou o `comum/`.
 
-1. a Infra criar os tópicos novos e registrar os consumidores novos ([eventos](03-eventos-e-integracoes.md), seção 4);
-2. o grupo de Banco aplicar as migrações de `services/*/migracoes/` (sem os seeds `9xx`), no lugar das tabelas do `01-init.sql`;
-3. trocar o build dos serviços no `docker-compose.yml` do kit para o nosso (contexto na raiz, por causa do pacote `comum`);
-4. apontar `AUTH_JWKS_URL` para o JWKS da Autenticação pelo gateway (`http://gateway:8080/.well-known/jwks.json`) e desligar `pedidos-falso` e `usuarios-falso`. Enquanto o kit não for atualizado, `JWT_ALGORITHM=HS256` com a `JWT_SECRET_KEY` do kit;
-5. combinar com a Infra o caminho das telas no gateway (`/logistica/` ou `/app/logistica`).
+As imagens sobem só com as variáveis que a AWS injeta (`DB_*`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_*`, `PORT`, `SERVICE_NAME`): conferido em 27/11/2026, com `/health/ready` em 200 nos dois serviços. Para o fluxo funcionar lá, ainda falta:
+
+1. a Infra criar os 4 tópicos novos e registrar os consumidores novos ([eventos](03-eventos-e-integracoes.md), seção 4); eles não estão entre os 18 tópicos oficiais;
+2. aplicar as migrações de `services/*/migracoes/` (sem os seeds `9xx`) no RDS, como `portal_ddl`, no lugar das tabelas do kit que o `01-init.sql` ainda cria nos nossos schemas;
+3. o segredo `auth-jwt` passar a `RS256` quando o Identity-Service subir (issue #7 do kit). Com o `HS256` que a AWS injeta hoje, o serviço espera o token antigo do kit e recusa o do Identity-Service. Com `RS256`, os padrões do código já servem (`AUTH_JWKS_URL` = `http://gateway:8080/.well-known/jwks.json`, emissor `identity-service`, audiência `b2b-platform`);
+4. a Infra trocar a página genérica de `frontends/apps/logistica/` pela nossa pasta `frontend/` (o gateway da AWS já manda `/logistica/` para ela).
+
+**Cuidado com o relógio do módulo na AWS:** a hora do módulo é calculada pelo tempo real que passou desde o último ajuste. Se o relógio ficar acelerado quando o ambiente desliga, as 10 h desligado contam no fator (em 360×, 150 dias de módulo). Antes da meia-noite, o administrador deve voltar o relógio para 1×.
 
 ## 11. Testes e validação
 
@@ -512,8 +515,8 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | Grupo | Pendência |
 |---|---|
 | Mercado, Negociação e Pedidos | Proposta atendida (ESP-PED-001 v2.1). Respostas à issue #1: início da cotação no `AGUARDANDO_FRETE` (ADR-027), nova rodada no frete indisponível (ADR-028), venda concluída no fechamento |
-| Infraestrutura | Tópicos novos, consumidores novos, correções do kit, caminho das telas no gateway |
-| Banco de Dados | Aplicar as migrações e a correção dos GRANTs |
+| Infraestrutura | Tópicos novos e consumidores novos (fora dos 18 oficiais); `RS256` no segredo `auth-jwt`; nossas telas em `frontends/apps/logistica/`; cadastrar os Secrets da AWS no nosso repositório (colaborador adicionado em 27/11/2026) |
+| Banco de Dados | Aplicar as migrações no RDS, no lugar das tabelas do kit nos nossos schemas |
 | Fornecimento e Produtos | Atendido em 10/11/2026: listas confirmadas, origem do fornecimento em cidade e UF e `pesoUnitarioKg` no produto. Falta só avisar que já usamos RS256 |
 | Autenticação | Tipos de carga da transportadora no `empresa_cadastrada` (ADR-029); confirmar que o refresh mantém o contexto escolhido. O administrador do módulo já está resolvido pelo `platform_role` `PLATFORM_ADMIN` (ADR-026) |
 | Turma | Padrão único do erro: `codigo` (nós e Produtos) ou `code` (proposta da Autenticação) |
@@ -545,3 +548,4 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | 1.9 | 23/11/2026 | Ajustes de tela pedidos pelo grupo e pelo mockup publicado do UX: atualizar a localização com limite, marcar todas as notificações como lidas (API-19), tipo da ocorrência e linha do tempo centralizada ([explicação 15](explicacoes/15-ajustes-de-tela-e-tipo-de-ocorrencia.md)); ESP-LOG-001 1.6; 171 testes unitários e 14 de integração |
 | 2.0 | 23/11/2026 | Rota pelas estradas, a pedido do professor (D9, ADR-015); passo da viagem pela hora do módulo, corrigindo o relógio acelerado (D10); telefone e CNH do motorista conforme o perfil, validade da cotação só com a data e entrega desejada na tela da transportadora ([explicação 16](explicacoes/16-rota-pelas-estradas-e-relogio-acelerado.md)); ESP-LOG-001 1.7, ESP-TRP-001 1.4; 183 testes unitários e 17 de integração |
 | 2.1 | 24/11/2026 | Logo do mockup do UX, ícones da linha do tempo alinhados, caminhão andando a cada segundo entre as leituras e espera de 5 s no botão "Atualizar localização" ([explicação 17](explicacoes/17-logo-linha-do-tempo-e-caminhao-continuo.md)) |
+| 2.2 | 27/11/2026 | Deploy na AWS pelo GitHub Actions (seção 10): dois workflows, um por serviço, e as imagens conferidas com as variáveis da AWS; o que falta para o fluxo funcionar lá. Tela de rastreamento alinhada ao mockup do UX (UX-RAS-06 e UX-RAS-08): aviso de dados fictícios, protocolo da ocorrência e descrição de 1 a 500 caracteres (ESP-LOG-001 1.8) ([explicação 18](explicacoes/18-deploy-na-aws-e-rastreamento-do-ux.md)); 184 testes unitários |
