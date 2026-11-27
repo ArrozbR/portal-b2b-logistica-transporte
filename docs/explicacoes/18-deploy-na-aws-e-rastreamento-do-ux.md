@@ -40,7 +40,7 @@ Os serviços sobem, mas o fluxo de frete ainda não roda lá. Depende de outros 
 |---|---|---|
 | Os 4 tópicos novos (`rastreio_atualizado`, `entrega_concluida`, `frete_indisponivel`, `relogio_ajustado`) | Não estão entre os 18 tópicos oficiais. Sem eles não há viagem nem rastreio | Infra (issue #5 do kit) |
 | As nossas tabelas no RDS | Ninguém aplica as nossas migrações lá ainda. E o `01-init.sql` do kit cria as tabelas antigas do kit nos nossos schemas, com menos colunas | Infra / Banco (issue #3 nossa) |
-| `RS256` no segredo do token | A AWS injeta `JWT_ALGORITHM=HS256`. Com ele, o nosso serviço espera o token antigo do kit e recusa o do Identity-Service | Infra e Autenticação (issue #7 do kit) |
+| `RS256` no segredo do token | A AWS injeta `JWT_ALGORITHM=HS256`. Com ele, o nosso serviço espera o token antigo do kit e recusa o do Identity-Service. Testado com um gateway simulado: com `RS256`, o token é aceito sem nenhuma outra configuração | Infra e Autenticação (issue #7 do kit) |
 | As nossas telas em `/logistica/` | O gateway da AWS já manda `/logistica/` para uma pasta da Infra, que hoje tem uma página genérica | Infra (copiar a nossa `frontend/`) |
 
 **Cuidado com o relógio do módulo:** a hora do módulo é calculada pelo tempo real que passou desde o último ajuste, vezes o fator. Se o relógio ficar em 360× quando o ambiente desliga à meia-noite, as 10 horas desligado viram 150 dias de módulo: todas as entregas chegam de uma vez e as CNHs do seed vencem. **Antes da meia-noite, volte o relógio para 1×.**
@@ -63,6 +63,15 @@ O grupo de UX descreveu a tela em 8 requisitos (UX-RAS-01 a UX-RAS-08). A tela d
 **O protocolo** é `OC-` mais os 8 primeiros caracteres do número da ocorrência (por exemplo `OC-78E31D9B`). Ele aparece no aviso depois de enviar e na linha do tempo, para a pessoa citar depois.
 
 **Por que mudar o mínimo de caracteres também na API, e não só na tela?** A regra mora na API (ESP-LOG-001, RN-33). Se só a tela mudasse, uma ocorrência de 3 letras passaria na tela e voltaria com erro. Os espaços das pontas continuam saindo antes de contar: uma ocorrência só com espaços ainda é recusada. A ESP-LOG-001 foi para a versão 1.8.
+
+### O guia que o grupo de UX pediu
+
+Por áudio, o grupo de UX contou que o professor está cobrando deles a tela de rastreamento do caminhão, e pediu que explicássemos o que mudar no site deles. O guia está em [`docs/contratos/ux-rastreamento/`](../contratos/ux-rastreamento/README.md):
+
+- **Não precisa página nova:** só o bloco do mapa muda. O desenho fixo dá lugar a um mapa de verdade (Leaflet), com a mesma rota de Sorriso a Santos que o nosso serviço usa (216 pontos, pelas estradas).
+- **Patch pronto** (`mapa-real.patch`), aplicado numa cópia do site deles e conferido no navegador. As verificações deles que tocam no mapa (UX-RAS-03 e UX-RAS-06) continuam passando.
+- **O produto deles está congelado** (cada arquivo tem SHA-256 num manifesto da homologação). Por isso o guia manda copiar o produto para uma pasta nova antes de aplicar o patch.
+- **Dados reais:** o guia explica por que a página na Vercel ainda não consegue ler a nossa API (outro endereço, sem CORS, certificado HTTPS da AWS com problema e login) e dá o mapa dos campos da fixture deles para as nossas rotas, caso o professor peça a integração.
 
 ## 5. Perguntas que o professor pode fazer
 

@@ -184,7 +184,7 @@ As imagens sobem só com as variáveis que a AWS injeta (`DB_*`, `KAFKA_BOOTSTRA
 
 1. a Infra criar os 4 tópicos novos e registrar os consumidores novos ([eventos](03-eventos-e-integracoes.md), seção 4); eles não estão entre os 18 tópicos oficiais;
 2. aplicar as migrações de `services/*/migracoes/` (sem os seeds `9xx`) no RDS, como `portal_ddl`, no lugar das tabelas do kit que o `01-init.sql` ainda cria nos nossos schemas;
-3. o segredo `auth-jwt` passar a `RS256` quando o Identity-Service subir (issue #7 do kit). Com o `HS256` que a AWS injeta hoje, o serviço espera o token antigo do kit e recusa o do Identity-Service. Com `RS256`, os padrões do código já servem (`AUTH_JWKS_URL` = `http://gateway:8080/.well-known/jwks.json`, emissor `identity-service`, audiência `b2b-platform`);
+3. o segredo `auth-jwt` passar a `RS256` quando o Identity-Service subir (issue #7 do kit). Com o `HS256` que a AWS injeta hoje, o serviço espera o token antigo do kit e recusa o do Identity-Service. Com `RS256`, os padrões do código já servem (`AUTH_JWKS_URL` = `http://gateway:8080/.well-known/jwks.json`, emissor `identity-service`, audiência `b2b-platform`): conferido em 27/11/2026 com a imagem rodando só com as variáveis da AWS e um gateway simulado na porta 8080 (200 com `RS256`; 401 com `HS256`);
 4. a Infra trocar a página genérica de `frontends/apps/logistica/` pela nossa pasta `frontend/` (o gateway da AWS já manda `/logistica/` para ela).
 
 **Cuidado com o relógio do módulo na AWS:** a hora do módulo é calculada pelo tempo real que passou desde o último ajuste. Se o relógio ficar acelerado quando o ambiente desliga, as 10 h desligado contam no fator (em 360×, 150 dias de módulo). Antes da meia-noite, o administrador deve voltar o relógio para 1×.
@@ -522,6 +522,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | Autenticação | Tipos de carga da transportadora no `empresa_cadastrada` (ADR-029); confirmar que o refresh mantém o contexto escolhido. O administrador do módulo já está resolvido pelo `platform_role` `PLATFORM_ADMIN` (ADR-026) |
 | Turma | Padrão único do erro: `codigo` (nós e Produtos) ou `code` (proposta da Autenticação) |
 | Teste e Qualidade | Revisar a ESP-LOG-001 e a ESP-TRP-001 (gate G1) |
+| UX/UI | Pediram (27/11/2026) um guia para a tela de rastreamento deles, cobrada pelo professor: entregue em `docs/contratos/ux-rastreamento/` (mapa real com a rota pelas estradas, patch testado e o mapa para a nossa API). Falta o grupo aplicar |
 | Professor | P1 (posição simulada), P2 (escolha pelo comprador), P3 (tópicos novos), data da apresentação |
 
 ## 16. Referências
