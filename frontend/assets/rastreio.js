@@ -125,7 +125,7 @@
     // Ocorrências reportadas por comprador ou fornecedor entram na linha do tempo, na ordem do horário.
     const ocorrencias = (r.ocorrencias || []).map((o) => ({
       tipo: 'OCORRENCIA', ocorrido_em: o.ocorrida_em,
-      descricao: `${o.tipo && o.tipo !== 'OUTRO' ? `${TIPOS_OCORRENCIA[o.tipo] || o.tipo} · ` : ''}Reportada pelo ${o.autor_papel}: ${o.descricao}`,
+      descricao: `${o.tipo && o.tipo !== 'OUTRO' ? `${TIPOS_OCORRENCIA[o.tipo] || o.tipo} · ` : ''}Reportada pelo ${o.autor_papel} (protocolo ${protocolo(o.id)}): ${o.descricao}`,
     }));
     // Das posições, só a última entra ("Carga em trânsito" com a hora da leitura mais recente).
     const eventos = [...r.eventos.filter((ev, i, todos) => ev.tipo !== 'POSICAO' || todos.findLastIndex((x) => x.tipo === 'POSICAO') === i),
@@ -183,6 +183,8 @@
       par('Tipo', formato.veiculo(e.veiculo_tipo)),
       par('Transportadora', escapar(e.transportadora_nome)),
       par('Contato da transportadora', escapar(e.transportadora_telefone || '—')),
+      // Como no mockup do UX (UX-RAS-06): o cartão deixa claro que as pessoas e os contatos não são reais.
+      '<dd class="nota-ficticia">Dados fictícios, só para demonstração.</dd>',
     ].join('') : `<dd style="grid-column:1/-1;color:var(--texto-suave)">${e.status === 'RECUSADA'
       ? 'A transportadora recusou a viagem por falta de frota livre.'
       : 'A transportadora ainda está escalando o motorista e o veículo.'}</dd>`;
@@ -204,6 +206,8 @@
   }
 
   // ------------------------------------------------------------------ ocorrência
+  const protocolo = (id) => `OC-${String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+
   function reportarOcorrencia() {
     Portal.modal({
       titulo: 'Reportar ocorrência',
@@ -212,22 +216,23 @@
         <select id="tipo-ocorrencia" required><option value="">Selecione…</option>
           ${Object.entries(TIPOS_OCORRENCIA).map(([valor, nome]) => `<option value="${valor}">${nome}</option>`).join('')}</select></div>
         <div class="campo" id="c-ocorrencia"><label for="ocorrencia">O que aconteceu? <span class="obrigatorio">*</span></label>
-        <textarea id="ocorrencia" maxlength="500" minlength="5" placeholder="De 5 a 500 caracteres"></textarea></div><div id="erro-modal"></div>`,
+        <textarea id="ocorrencia" maxlength="500" placeholder="Até 500 caracteres"></textarea></div><div id="erro-modal"></div>`,
       botoes: [{ texto: 'Cancelar' }, {
         texto: 'Enviar', classe: 'primario', async acao(janela) {
           const tipo = janela.querySelector('#tipo-ocorrencia').value;
           const descricao = janela.querySelector('#ocorrencia').value.trim();
           const erro = janela.querySelector('#erro-modal');
-          if (!tipo || descricao.length < 5) {
-            erro.innerHTML = `<div class="aviso erro" role="alert">${!tipo ? 'Selecione o tipo de ocorrência.' : 'Descreva a ocorrência com pelo menos 5 caracteres.'}</div>`;
+          if (!tipo || !descricao) {
+            erro.innerHTML = `<div class="aviso erro" role="alert">${!tipo ? 'Selecione o tipo de ocorrência.' : 'Descreva o que aconteceu.'}</div>`;
             janela.querySelector(!tipo ? '#tipo-ocorrencia' : '#ocorrencia').focus();
             return false;
           }
           try {
-            await api(`/api/v1/logistica/entregas/${encodeURIComponent(entregaId)}/ocorrencias`, {
+            const ocorrencia = await api(`/api/v1/logistica/entregas/${encodeURIComponent(entregaId)}/ocorrencias`, {
               metodo: 'POST', corpo: { tipo, descricao },
             });
-            Portal.avisoRapido('Ocorrência registrada.');
+            // Protocolo para a pessoa citar depois (UX-RAS-08): os 8 primeiros caracteres do id da ocorrência.
+            Portal.avisoRapido(`Ocorrência registrada. Protocolo ${protocolo(ocorrencia.id)}.`);
             carregar();
             return true;
           } catch (erro) { janela.querySelector('#erro-modal').innerHTML = erroHtml(erro); return false; }

@@ -42,11 +42,11 @@ def test_fator_do_relogio_tem_no_maximo_duas_casas(corpo, aceito):
 
 
 @pytest.mark.parametrize("descricao, aceita", [
-    ("Carga molhada", True), ("  Carga molhada  ", True), ("abcde", True), ("x" * 500, True),
-    ("     ", False), ("  abc  ", False), ("abcd", False), ("x" * 501, False),
+    ("Carga molhada", True), ("  Carga molhada  ", True), ("a", True), ("  abc  ", True), ("x" * 500, True),
+    ("     ", False), ("", False), ("x" * 501, False), ("  " + "x" * 501 + "  ", False),
 ])
 def test_descricao_da_ocorrencia_conta_sem_os_espacos_das_pontas(descricao, aceita):
-    # "     " passava no mínimo de 5 caracteres e era gravada como texto vazio.
+    # "     " passava no mínimo e era gravada como texto vazio. Vale de 1 a 500, como no UX (UX-RAS-08).
     if aceita:
         assert NovaOcorrencia(descricao=descricao).descricao == descricao.strip()
     else:

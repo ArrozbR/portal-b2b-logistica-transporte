@@ -260,6 +260,7 @@ svg.icone { width: 18px; height: 18px; flex: none; }
 .dados { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; font-size: 13px; }
 .dados dt { color: var(--texto-suave); }
 .dados dd { margin: 0; font-weight: 500; }
+.dados .nota-ficticia { grid-column: 1 / -1; margin-top: 4px; padding: 8px 10px; border-radius: 8px; background: var(--verde-fundo); color: var(--verde-texto); font-weight: 400; font-size: 12px; }
 .dados hr { grid-column: 1 / -1; border: 0; border-top: 1px solid var(--borda); margin: 4px 0; }
 .documentos { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .documentos li { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--borda); }

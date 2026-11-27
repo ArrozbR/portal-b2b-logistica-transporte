@@ -82,10 +82,10 @@ TipoOcorrencia = Literal["ATRASO", "AVARIA", "DESVIO_ROTA", "OUTRO"]
 
 
 class NovaOcorrencia(BaseModel):
-    # Os espaços das pontas saem ANTES de contar o tamanho: "     " (5 espaços) passava no
-    # mínimo de 5 caracteres e era gravado como texto vazio.
-    descricao: Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=500)] = Field(
-        ..., description="O que aconteceu (5 a 500 caracteres, sem contar espaços nas pontas)")
+    # Os espaços das pontas saem ANTES de contar o tamanho: "     " (só espaços) passava no
+    # mínimo e era gravado como texto vazio. De 1 a 500 caracteres, como no mockup do UX (UX-RAS-08).
+    descricao: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)] = Field(
+        ..., description="O que aconteceu (1 a 500 caracteres, sem contar espaços nas pontas)")
     # Opcional, para quem já chamava a rota só com a descrição: sem tipo, vale OUTRO.
     tipo: TipoOcorrencia = Field("OUTRO", description="ATRASO, AVARIA (avaria na carga), DESVIO_ROTA ou OUTRO")
 
