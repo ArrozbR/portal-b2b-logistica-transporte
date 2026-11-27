@@ -39,6 +39,9 @@ O grupo de Fornecimento e Produtos analisou o kit no [Relatório Técnico](https
 | L14 | Janela de 10 s não combina com cotação manual: o mockup do UX tem a transportadora preenchendo valor, prazo e validade, o que leva minutos | Guia (seção 8.1) e mockup `portal_b2b_06_fretes.png` | Cotação manual nunca entraria na janela | Janela configurável (D3, D4) |
 | L15 | A auditoria da seleção registra o usuário como `"system"` | `selecionar_frete` | Perde quem escolheu quando a seleção é manual | Usar o `sub` do token quando houver |
 | L16 | O kit valida o token com HS256 e chave compartilhada e lê `empresaId` e `perfil` (em minúsculas). O grupo de Autenticação definiu outro token: RS256, chaves públicas no `/.well-known/jwks.json` e claims `tenant_id` e `active_scope` (`BUYER`, `SUPPLIER`, `CARRIER`, `TENANT_ADMIN`). Fonte: issue #2 do repositório de Fornecimento e Produtos (09/11/2026), que já mudou para RS256 | `services/common/auth.py` do kit | Seguindo o kit, um token real da Autenticação seria recusado com 401 | Seguir a Autenticação (D25), com o formato do kit por configuração |
+| L17 | O deploy na AWS supõe um serviço por repositório, com o `Dockerfile` na raiz, e o guia pede para mudar só o `SERVICE_NAME` do modelo. Este repositório tem os dois serviços do grupo, que usam o mesmo pacote `comum/` (K4) | `docs/GUIA-DEPLOY-GRUPOS.md` e `docs/templates/deploy-microservico.yml` do kit (commit `4720748`) | Com o modelo como está, o build falha (não há `Dockerfile` na raiz) | Um workflow por serviço, com o build `-f services/<serviço>/Dockerfile` a partir da raiz; avisado na issue #5 do kit |
+| L18 | O `docker-compose.aws.yml` injeta `JWT_ALGORITHM` com padrão `HS256`, e o segredo `auth-jwt` foi modelado para HS256, mas o Identity-Service assina em RS256 (L16) | `docker-compose.aws.yml` e `scripts/aws-sync-env.sh` do kit | Na AWS, o nosso serviço espera o token antigo do kit e recusa o do Identity-Service | O segredo passar a `RS256` (issue #7 do kit, aberta pela Autenticação); os padrões do nosso código já servem |
+| L19 | Na AWS não há caminho para os grupos aplicarem as migrações no RDS (o guia de arquitetura cita "jobs de migração com `portal_ddl`", sem dizer quem roda), e o `01-init.sql` ainda cria as tabelas de exemplo do kit nos nossos schemas (L8) | `docs/arquitetura-aws.md` e `database/01-init.sql` do kit | Os serviços sobem, mas sem as nossas tabelas; a nossa `001` falha se as tabelas do kit existirem | Pedido na issue #5 do kit (27/11/2026): apagar as tabelas do kit nos dois schemas e aplicar as nossas migrações, com os seeds 900 e 901 para a demonstração |
 
 ## 3. Conclusão
 
@@ -89,4 +92,11 @@ Depois da etapa 5:
 |---|---|---|
 | L16 | Token RS256 da Autenticação validado pelo JWKS, com a tradução de `active_scope` para os perfis do módulo; `JWT_ALGORITHM=HS256` volta ao formato do kit (D25) | `comum/comum/auth.py` |
 
-Fica pendente: L12 (depende do grupo de Pedidos). O caminho do front no gateway do kit (`/logistica/` ou `/app/logistica`) ainda precisa ser confirmado com a Infraestrutura quando as telas forem para o kit.
+Com o ambiente da AWS (27/11/2026):
+
+| Item | Como ficou | Onde |
+|---|---|---|
+| L17 | Dois workflows de deploy, um por serviço, com o build a partir da raiz | `.github/workflows/deploy-*.yml` |
+| L13 | O caminho das telas está confirmado: o gateway da AWS manda `/logistica/` para `frontends/apps/logistica/`. Falta a Infra trocar a página genérica pela nossa pasta `frontend/` | `gateway/nginx.aws.conf` do kit |
+
+Fica pendente: L12 (depende do grupo de Pedidos; os 4 tópicos novos também ficaram fora dos 18 tópicos oficiais da AWS), L18 e L19 (dependem da Infra e da Autenticação).

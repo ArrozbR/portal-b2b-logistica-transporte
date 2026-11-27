@@ -509,6 +509,7 @@ As especificações [ESP-LOG-001](especificacoes/ESP-LOG-001_Logistica.md) (20 r
 | Reserva de caminhão | Primeira versão: `FOR UPDATE` em lista | Gravação condicional | ADR-007 |
 | Conteúdo da DLT | Kit: `originalEvent`, `error`, `stackTrace`, `failedAtAttempt` | Os mesmos, mais `originalTopic` | Corrigido depois da etapa 5 (a primeira versão usava `eventoOriginal`, `erro` e `tentativas`) |
 | Token | Kit: HS256, `empresaId`, `perfil` | RS256 da Autenticação; HS256 por configuração | ADR-026 |
+| Deploy na AWS | Kit: um `Dockerfile` na raiz e um workflow por repositório | Dois workflows, um por serviço, com o build a partir da raiz | Os dois serviços usam o pacote `comum` (L17) |
 
 ## 15. Pendências com outros grupos
 
