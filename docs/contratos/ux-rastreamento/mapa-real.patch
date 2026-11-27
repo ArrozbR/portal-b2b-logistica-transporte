@@ -1,0 +1,138 @@
+diff -ruN a/public/css/app.css b/public/css/app.css
+--- a/public/css/app.css
++++ b/public/css/app.css
+@@ -276,3 +276,12 @@
+   .proposal-data { grid-template-columns: minmax(0, 1fr); }
+   .profile-switch { flex-wrap: wrap; }
+ }
++
++/* Mapa real do rastreamento (Leaflet) */
++/* A regra ".map svg { width: 100% }" do mapa antigo esticava os SVGs do Leaflet (a linha da rota sumia e a
++   bandeira dos créditos ficava gigante): dentro do mapa real, o tamanho dos SVGs é o que o Leaflet define. */
++.map-canvas svg { width: auto; height: auto; border-radius: 0; }
++.map-canvas { height: 340px; border-radius: var(--r); border: 1px solid #D0D5DD; }
++.map-pin { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 4px solid #3F7F00; box-sizing: border-box; }
++.map-pin.is-dest { border-color: #475467; }
++.map-truck { width: 34px; height: 34px; border-radius: 50%; background: #3F7F00; color: #fff; display: grid; place-items: center; font-size: 15px; box-shadow: 0 0 0 5px rgba(63, 127, 0, .25); }
+diff -ruN a/public/fixtures.json b/public/fixtures.json
+--- a/public/fixtures.json
++++ b/public/fixtures.json
+@@ -458,6 +458,8 @@
+   "RAS-A": {
+     "REFERENCE_DATE": "2025-09-24T14:30:00-03:00",
+     "id": "FR-1084",
++    "rota_fonte": "Grupo 5 (Logística): estradas do OpenStreetMap via OSRM, licença ODbL",
++    "rota": [[-12.5453,-55.7114],[-12.5455,-55.7111],[-12.7243,-55.8287],[-12.7841,-55.8374],[-12.8383,-55.8241],[-13.0439,-55.9037],[-13.0848,-55.9415],[-13.3576,-56.0629],[-13.3869,-56.0909],[-13.451,-56.0831],[-13.5313,-56.026],[-13.7045,-56.0404],[-13.8366,-56.0761],[-13.8374,-56.0743],[-13.8366,-56.0761],[-14.0554,-56.0976],[-14.1053,-56.1186],[-14.2083,-56.0873],[-14.275,-56.1537],[-14.3063,-56.1389],[-14.3549,-56.1507],[-14.3996,-56.1094],[-14.4306,-56.1152],[-14.5314,-56.2297],[-14.5759,-56.2227],[-14.6602,-56.2983],[-14.7057,-56.3219],[-14.7412,-56.3207],[-14.8211,-56.43],[-14.836,-56.3868],[-14.858,-56.3709],[-14.9404,-56.3631],[-14.9966,-56.3783],[-15.0786,-56.3449],[-15.1228,-56.3443],[-15.1629,-56.3258],[-15.1984,-56.2605],[-15.2535,-56.2368],[-15.3027,-56.2483],[-15.4688,-56.2046],[-15.5345,-56.1662],[-15.6014,-56.0979],[-15.6014,-56.0979],[-15.6014,-56.0979],[-15.701,-55.889],[-15.7055,-55.7084],[-15.7327,-55.667],[-15.7998,-55.6611],[-15.8116,-55.636],[-15.7972,-55.6038],[-15.8019,-55.5562],[-15.838,-55.4914],[-15.8059,-55.298],[-15.8406,-55.1556],[-15.9033,-55.0945],[-15.9018,-55.0549],[-15.9416,-55.0172],[-15.9696,-54.942],[-16.0309,-54.8876],[-16.1168,-54.858],[-16.1608,-54.7916],[-16.2575,-54.7785],[-16.3818,-54.7131],[-16.4075,-54.7152],[-16.4671,-54.6372],[-16.4673,-54.6372],[-16.4671,-54.6372],[-16.4731,-54.6544],[-16.4912,-54.6456],[-16.6001,-54.4993],[-16.6452,-54.4224],[-16.6602,-54.3185],[-16.7186,-54.2646],[-16.7554,-54.2682],[-16.788,-54.2174],[-16.8007,-54.1677],[-16.7828,-54.1631],[-16.825,-54.0615],[-16.8428,-53.9382],[-16.8674,-53.8951],[-16.8374,-53.7836],[-16.8741,-53.6851],[-16.937,-53.5918],[-16.9336,-53.5362],[-17.1214,-53.4512],[-17.212,-53.3551],[-17.2173,-53.3263],[-17.2523,-53.3166],[-17.2815,-53.2536],[-17.3797,-53.1376],[-17.3735,-53.0827],[-17.3972,-52.9977],[-17.375,-52.9398],[-17.3997,-52.6548],[-17.5031,-52.5408],[-17.5251,-52.5304],[-17.5654,-52.5535],[-17.5654,-52.5537],[-17.5654,-52.5535],[-17.5571,-52.5282],[-17.5791,-52.5169],[-17.5959,-52.4409],[-17.6701,-52.3334],[-17.6649,-52.2304],[-17.7818,-52.0913],[-17.8163,-52.0277],[-17.8179,-51.9706],[-17.9038,-51.8318],[-17.9216,-51.7466],[-17.9216,-51.701],[-17.8739,-51.6391],[-17.8158,-51.2974],[-17.8269,-50.9779],[-17.8132,-50.9302],[-17.7923,-50.9191],[-17.7923,-50.9192],[-17.7923,-50.9191],[-17.7859,-50.9018],[-17.8744,-50.7253],[-17.9153,-50.5881],[-17.9999,-50.4013],[-18.0532,-50.2307],[-18.0493,-50.1884],[-18.1976,-49.8633],[-18.198,-49.7789],[-18.3018,-49.5845],[-18.2973,-49.535],[-18.3476,-49.3945],[-18.3959,-49.3292],[-18.3931,-49.2919],[-18.4187,-49.2227],[-18.4093,-49.2158],[-18.4093,-49.2158],[-18.4093,-49.2158],[-18.4145,-49.1945],[-18.4435,-49.1879],[-18.6187,-49.1911],[-18.7088,-49.1392],[-18.7564,-49.0777],[-18.8437,-49.0933],[-18.8819,-49.0562],[-18.8765,-48.8772],[-18.8525,-48.8507],[-18.8491,-48.8203],[-18.8925,-48.6856],[-18.8866,-48.6143],[-18.8644,-48.5852],[-18.9128,-48.2755],[-18.9128,-48.2755],[-18.9128,-48.2755],[-18.9249,-48.221],[-19.2387,-48.1403],[-19.3616,-48.0796],[-19.5853,-48.0308],[-19.71,-47.9825],[-19.708,-47.9659],[-19.7472,-47.9381],[-19.7472,-47.9381],[-19.7472,-47.9381],[-19.9718,-47.7907],[-20.0386,-47.7802],[-20.1979,-47.7856],[-20.4893,-47.8438],[-20.5139,-47.836],[-20.6056,-47.884],[-20.8792,-47.8977],[-20.9425,-47.8793],[-21.0925,-47.793],[-21.1071,-47.8101],[-21.1706,-47.8099],[-21.1704,-47.8103],[-21.1706,-47.8099],[-21.2055,-47.7564],[-21.271,-47.7558],[-21.3577,-47.7227],[-21.4311,-47.653],[-21.5497,-47.6384],[-21.7363,-47.5826],[-21.8141,-47.4978],[-22.2229,-47.3917],[-22.4815,-47.3998],[-22.492,-47.4257],[-22.5223,-47.4331],[-22.5436,-47.461],[-22.5867,-47.4559],[-22.6497,-47.5133],[-22.7003,-47.5968],[-22.6926,-47.6345],[-22.7253,-47.6492],[-22.7253,-47.6492],[-22.7253,-47.6492],[-22.7275,-47.5513],[-22.7645,-47.4492],[-22.8522,-47.3241],[-22.9231,-47.1326],[-22.9925,-47.1103],[-23.1689,-46.9412],[-23.2112,-46.9228],[-23.2773,-46.8495],[-23.3402,-46.8203],[-23.3805,-46.7706],[-23.4638,-46.752],[-23.5084,-46.7215],[-23.5328,-46.7498],[-23.5618,-46.7071],[-23.6114,-46.6741],[-23.6309,-46.6311],[-23.6706,-46.6321],[-23.6909,-46.6044],[-23.7864,-46.5978],[-23.926,-46.5543],[-23.8821,-46.4863],[-23.9611,-46.4055],[-23.972,-46.3695],[-23.9608,-46.3333],[-23.9608,-46.3336]],
+     "origem": "Sorriso-MT",
+     "destino": "Santos-SP",
+     "quantidade_kg": 24000,
+diff -ruN a/public/index.html b/public/index.html
+--- a/public/index.html
++++ b/public/index.html
+@@ -6,6 +6,9 @@
+   <meta name="description" content="Portal B2B - demonstração frontend (R5). Dados fictícios, sem backend.">
+   <title>Portal B2B (demo)</title>
+   <link rel="stylesheet" href="/css/app.css">
++  <!-- Mapa real da tela de rastreamento: Leaflet + OpenStreetMap (antes do app.js) -->
++  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
++  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+   <script type="module" src="/js/app.js"></script>
+ </head>
+ <body>
+diff -ruN a/public/js/pages.js b/public/js/pages.js
+--- a/public/js/pages.js
++++ b/public/js/pages.js
+@@ -916,6 +916,52 @@
+ // Produto não consta na fixture RAS-A; texto da especificação (UX-RAS-05). Ver BLOQUEIOS.md.
+ const RAS_PRODUTO = 'Soja';
+ 
++// ---------- Mapa real do rastreamento (Leaflet) ----------
++// Distância em km entre dois pontos [lat, lon] (haversine), para achar o ponto do progresso na rota.
++function distanciaKm([lat1, lon1], [lat2, lon2]) {
++  const rad = (g) => (g * Math.PI) / 180;
++  const a = Math.sin(rad(lat2 - lat1) / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
++  return 2 * 6371 * Math.asin(Math.sqrt(a));
++}
++
++// Divide a rota no ponto de `fracao` (0 a 1) da distância: trecho percorrido, trecho restante e o ponto.
++function dividirRota(rota, fracao) {
++  const trechos = rota.slice(1).map((p, i) => distanciaKm(rota[i], p));
++  const alvo = trechos.reduce((s, d) => s + d, 0) * Math.min(Math.max(fracao, 0), 1);
++  let andado = 0;
++  for (let i = 0; i < trechos.length; i += 1) {
++    if (andado + trechos[i] >= alvo) {
++      const f = trechos[i] ? (alvo - andado) / trechos[i] : 0;
++      const ponto = [rota[i][0] + (rota[i + 1][0] - rota[i][0]) * f, rota[i][1] + (rota[i + 1][1] - rota[i][1]) * f];
++      return { percorrida: [...rota.slice(0, i + 1), ponto], restante: [ponto, ...rota.slice(i + 1)], ponto };
++    }
++    andado += trechos[i];
++  }
++  return { percorrida: rota, restante: [rota[rota.length - 1]], ponto: rota[rota.length - 1] };
++}
++
++function desenharMapaReal(Leaflet, alvo, r) {
++  const mapa = Leaflet.map(alvo, { scrollWheelZoom: false });
++  // Créditos em texto, sem link: a tela não pode ter links externos ativos (UX-RAS-06/B).
++  mapa.attributionControl.setPrefix('Leaflet');
++  Leaflet.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
++    maxZoom: 18, attribution: '&copy; colaboradores do OpenStreetMap (ODbL)',
++  }).addTo(mapa);
++  const { percorrida, restante, ponto } = dividirRota(r.rota, r.rota_percentual / 100);
++  Leaflet.polyline(restante, { color: '#98A2B3', weight: 4, dashArray: '8 8' }).addTo(mapa);
++  Leaflet.polyline(percorrida, { color: '#3F7F00', weight: 5, lineCap: 'round' }).addTo(mapa);
++  const pino = (classe) => Leaflet.divIcon({ className: '', html: `<div class="map-pin ${classe}"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] });
++  const aoLado = { permanent: true, direction: 'right', offset: [10, 0] };
++  Leaflet.marker(r.rota[0], { icon: pino(''), keyboard: false }).addTo(mapa).bindTooltip(`Origem: ${esc(r.origem)}`, aoLado);
++  Leaflet.marker(r.rota[r.rota.length - 1], { icon: pino('is-dest'), keyboard: false }).addTo(mapa)
++    .bindTooltip(`Destino: ${esc(r.destino)}`, { ...aoLado, direction: 'left', offset: [-10, 0] });
++  Leaflet.marker(ponto, {
++    icon: Leaflet.divIcon({ className: '', html: '<div class="map-truck">▶</div>', iconSize: [34, 34], iconAnchor: [17, 17] }),
++    keyboard: false, zIndexOffset: 1000,
++  }).addTo(mapa).bindTooltip(`Veículo ${esc(r.veiculo)} · ${r.rota_percentual}% da rota`, { permanent: true, direction: 'top', offset: [0, -18] });
++  mapa.fitBounds(Leaflet.latLngBounds(r.rota), { padding: [30, 30] });
++}
++
+ export function rastreamento(main) {
+   const r = state.fixtures['RAS-A'];
+   const now = () => scenarioNow('RAS-A');
+@@ -969,17 +1015,17 @@
+         el.innerHTML = `<div class="state state-error" role="alert"><p><strong>Mapa indisponível</strong> (falha simulada). As informações da viagem continuam em texto:</p>${textual}</div>`;
+         return;
+       }
+-      el.innerHTML = `<figure class="map"><svg viewBox="0 0 400 240" role="img" aria-labelledby="map-desc">
+-          <title id="map-desc">Mapa estático demonstrativo: rota de ${esc(r.origem)} a ${esc(r.destino)}, veículo ${esc(r.veiculo)} em trânsito (${r.rota_percentual}% da rota). Dados simulados.</title>
+-          <rect width="400" height="240" fill="#EEF2F6"/>
+-          <path d="M60 40 C 90 90, 120 110, 160 150 S 260 170, 340 205" fill="none" stroke="#C5CCD6" stroke-width="5" stroke-dasharray="8 6"/>
+-          <path d="M60 40 C 90 90, 120 110, 160 150 S 220 168, 262 176" fill="none" stroke="#3F7F00" stroke-width="5"/>
+-          <circle cx="60" cy="40" r="9" fill="#fff" stroke="#3F7F00" stroke-width="4"/><text x="76" y="36" font-size="13" fill="#111827">Origem: ${esc(r.origem)}</text>
+-          <circle cx="340" cy="205" r="9" fill="#fff" stroke="#475467" stroke-width="4"/><text x="214" y="228" font-size="13" fill="#111827">Destino: ${esc(r.destino)}</text>
+-          <rect x="248" y="162" width="28" height="28" rx="6" fill="#111827"/><text x="262" y="181" font-size="12" fill="#fff" text-anchor="middle">▶</text>
+-          <text x="196" y="150" font-size="12" fill="#111827">Veículo ${esc(r.veiculo)}</text>
+-          <text x="10" y="232" font-size="11" fill="#475467">Dados simulados</text></svg>
+-        <figcaption><span class="tag tag-demo">Dados simulados</span> Mapa estático demonstrativo, sem GPS real nem atualização automática. Linha contínua: trecho percorrido; tracejada: trecho restante.</figcaption></figure>${textual}`;
++      // Mapa real: rota pelas estradas (fixture RAS-A.rota, fornecida pelo grupo 5) sobre o OpenStreetMap.
++      // Sem o Leaflet (CDN fora do ar) ou sem a rota, cai no texto, como no mock "mapa indisponível".
++      const Leaflet = window.L; // neste arquivo, `L` é o logic.js; o Leaflet é window.L
++      if (!Leaflet || !Array.isArray(r.rota) || r.rota.length < 2) {
++        el.innerHTML = `<div class="state state-error" role="alert"><p><strong>Mapa indisponível.</strong> As informações da viagem continuam em texto:</p>${textual}</div>`;
++        return;
++      }
++      el.innerHTML = `<figure class="map"><div class="map-canvas" id="ras-leaflet" role="img"
++          aria-label="Mapa demonstrativo: rota de ${esc(r.origem)} a ${esc(r.destino)} pelas estradas, veículo ${esc(r.veiculo)} em trânsito (${r.rota_percentual}% da rota). Dados simulados."></div>
++        <figcaption><span class="tag tag-demo">Dados simulados</span> Rota pelas estradas, sem GPS real nem atualização automática. Linha contínua: trecho percorrido; tracejada: trecho restante.</figcaption></figure>${textual}`;
++      desenharMapaReal(Leaflet, $('#ras-leaflet', el), r);
+     },
+   });
+ 
+diff -ruN a/test/e2e/run-e2e.mjs b/test/e2e/run-e2e.mjs
+--- a/test/e2e/run-e2e.mjs
++++ b/test/e2e/run-e2e.mjs
+@@ -567,7 +567,7 @@
+   await P.goto(BASE + '/fretes/entregas/FR-1084');
+   await P.waitFor('!!document.querySelector("#ras-map figure")');
+   const map = await P.text('#ras-map');
+-  check('UX-RAS-03/A', 'mapa identifica origem, destino, trajeto, veículo e Dados simulados', /Sorriso-MT/.test(map) && /Santos-SP/.test(map) && /Dados simulados/.test(map) && /sem GPS real/.test(map) && /ABC-1D23/.test(await P.eval('document.querySelector("#ras-map svg title").textContent')));
++  check('UX-RAS-03/A', 'mapa identifica origem, destino, trajeto, veículo e Dados simulados', /Sorriso-MT/.test(map) && /Santos-SP/.test(map) && /Dados simulados/.test(map) && /sem GPS real/.test(map) && /ABC-1D23/.test(await P.eval('document.querySelector("#ras-leaflet").getAttribute("aria-label")')));
+   await P.eval('window.portalDemo.setMock("mapaIndisponivel", true); window.portalDemo.rerender()');
+   await P.waitFor('/Mapa indisponível/.test(document.querySelector("#ras-map").innerText)');
+   const fb = await P.text('#ras-map');
